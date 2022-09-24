@@ -1,5 +1,3 @@
-# -*- mode: text; indent-tabs-mode: nil; coding: utf-8 -*-
-
 # tox_profile
 
 Read and manipulate tox profile files. It started as a simple script from

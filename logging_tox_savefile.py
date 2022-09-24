@@ -1,16 +1,20 @@
 # -*- mode: python; indent-tabs-mode: nil; py-indent-offset: 4; coding: utf-8 -*-
 
+# originally from:
 # https://stackoverflow.com/questions/30901873/what-format-are-tox-files-stored-in
+
 import sys
 import os
 import struct
 from socket import inet_ntop, AF_INET6, AF_INET
+import logging
 
 try:
+    # https://pypi.org/project/msgpack/
     import msgpack
 except ImportError as e:
     msgpack = None
-    
+
 try:
     # https://github.com/toxygen-project/toxygen
     from wrapper.toxencryptsave import ToxEncryptSave
@@ -31,8 +35,6 @@ try:
 except ImportError as e:
     coloredlogs = False
 
-global LOG
-import logging
 LOG = logging.getLogger()
 
 #messenger.c
@@ -137,9 +139,9 @@ def process_chunk(index, state):
                 subtotal = 1 + alen + 2 + 32
                 port = struct.unpack_from(">H", result, offset+8+1+alen)[0]
                 pk = bin_to_hex(result[offset+8+1+alen+2:offset+8+1+alen+2+32], 32)
-               
+
                 LOG.info(f"{dSTATE_TYPE[data_type]} #{relay} status={status} ipaddr={ipaddr} port={port} {pk}")
-                offset += subtotal                
+                offset += subtotal
             delta += total
             length -= total
             relay += 1
@@ -149,24 +151,24 @@ def process_chunk(index, state):
 
 The integers in this structure are stored in Big Endian format.
 
-  Length  Contents    
-  1  uint8_t Status    
-  32  Long term public key    
-  1024  Friend request message as a byte string    
-  1  PADDING    
-  2  uint16_t Size of the friend request message    
-  128  Name as a byte string    
-  2  uint16_t Size of the name    
-  1007  Status message as a byte string    
-  1  PADDING    
-  2  uint16_t Size of the status message    
-  1  uint8_t User status (see also: USERSTATUS)    
-  3  PADDING    
-  4  uint32_t Nospam (only used for sending a friend request)    
-  8  uint64_t Last seen time    
+  Length  Contents
+  1  uint8_t Status
+  32  Long term public key
+  1024  Friend request message as a byte string
+  1  PADDING
+  2  uint16_t Size of the friend request message
+  128  Name as a byte string
+  2  uint16_t Size of the name
+  1007  Status message as a byte string
+  1  PADDING
+  2  uint16_t Size of the status message
+  1  uint8_t User status (see also: USERSTATUS)
+  3  PADDING
+  4  uint32_t Nospam (only used for sending a friend request)
+  8  uint64_t Last seen time
 
 """
-        dStatus = { #  Status  Meaning    
+        dStatus = { #  Status  Meaning
                    0:  'Not a friend ',
                    1:  'Friend added ',
                    2: 'Friend request sent ',
@@ -182,7 +184,7 @@ The integers in this structure are stored in Big Endian format.
             status = struct.unpack_from(">b", result, delta)[0]
             o = delta+1; l = 32
             pk = bin_to_hex(result[o:o+l], l)
-            
+
             o = delta+1+32+1024+1+2+128; l = 2
             nsize = struct.unpack_from(">H", result, o)[0]
             o = delta+1+32+1024+1+2; l = 128
@@ -195,17 +197,17 @@ The integers in this structure are stored in Big Endian format.
             LOG.info(f"Friend #{i}  {dStatus[status]} {name} {pk}")
 
     elif data_type == MESSENGER_STATE_TYPE_NAME:
-        LOG.info("User name = {}".format(str(state[index + 8:index + 8 + length], 'utf-8')))
+        LOG.info("User name = " +str(state[index + 8:index + 8 + length], 'utf-8'))
 
     elif data_type == MESSENGER_STATE_TYPE_STATUSMESSAGE:
         LOG.info(f"StatusMessage = {str(state[index + 8:index + 8 + length], 'utf-8')}")
-        
+
     elif data_type == MESSENGER_STATE_TYPE_STATUS:
         # 1  uint8_t status (0 = online, 1 = away, 2 = busy)
         dStatus = {0: 'online', 1: 'away', 2: 'busy'}
         status = struct.unpack_from(">b", state, index)[0]
         LOG.info(f"{dSTATE_TYPE[data_type]} = {dStatus[status]}")
-        
+
     elif data_type == MESSENGER_STATE_TYPE_GROUPS:
         result = state[index + 8:index + 8 + length]
         if msgpack:
@@ -223,9 +225,9 @@ The integers in this structure are stored in Big Endian format.
                     keys, \
                     self_info, \
                     saved_peers, = group
-                    
+
                     assert len(state_values) == 8, state_values
-                    
+
                     assert len(state_bin) == 5, state_bin
 
                     assert len(topic_info) == 6, topic_info
@@ -242,14 +244,14 @@ The integers in this structure are stored in Big Endian format.
                     for j in range(num_moderators):
                         mod = mods[j*32:j*32 + 32]
                         LOG.info(f"{dSTATE_TYPE[data_type]} group#{i} mod#{j} sig_pk={bin_to_hex(mod)}")
-                        
+
                     assert len(keys) == 4, keys
                     LOG.info(f"{dSTATE_TYPE[data_type]} #{i} {repr(list(map(len, keys)))}")
                     chat_public_key, chat_secret_key, self_public_key, self_secret_key = keys
                     LOG.info(f"{dSTATE_TYPE[data_type]} #{i} chat_public_key={bin_to_hex(chat_public_key)}")
                     if int(bin_to_hex(chat_secret_key), 16) != 0:
                         LOG.info(f"{dSTATE_TYPE[data_type]} #{i} chat_secret_key={bin_to_hex(chat_secret_key)}")
-                        
+
                     LOG.info(f"{dSTATE_TYPE[data_type]} #{i} self_public_key={bin_to_hex(self_public_key)}")
                     LOG.info(f"{dSTATE_TYPE[data_type]} #{i} self_secret_key={bin_to_hex(self_secret_key)}")
 
@@ -259,8 +261,8 @@ The integers in this structure are stored in Big Endian format.
 
                     LOG.info(f"{dSTATE_TYPE[data_type]} #{i} self_nick={repr(self_nick)}")
                     assert len(saved_peers) == 2, saved_peers
-                    
-            except Exception as e:            
+
+            except Exception as e:
                 LOG.warn(f"process_chunk {dSTATE_TYPE[data_type]} #{i} error={e}")
         else:
             LOG.debug(f"TODO process_chunk {dSTATE_TYPE[data_type]} #{i} bytes={length}")
@@ -272,12 +274,12 @@ Address, and a Public Key. This is sufficient information to start
 communicating with that node. The binary representation of a Node Info is
 called the “packed node format”.
 
-  Length  Type  Contents    
-  1 bit  Transport Protocol  UDP = 0, TCP = 1    
-  7 bit  Address Family  2 = IPv4, 10 = IPv6    
-  4 \| 16  IP address  4 bytes for IPv4, 16 bytes for IPv6    
-  2  Port Number  Port number    
-  32  Public Key  Node ID    
+  Length  Type  Contents
+  1 bit  Transport Protocol  UDP = 0, TCP = 1
+  7 bit  Address Family  2 = IPv4, 10 = IPv6
+  4 | 16  IP address  4 bytes for IPv4, 16 bytes for IPv6
+  2  Port Number  Port number
+  32  Public Key  Node ID
 
 """
         delta = 0
@@ -306,7 +308,7 @@ called the “packed node format”.
             delta += total
             length -= total
             relay += 1
-            
+
     elif data_type == MESSENGER_STATE_TYPE_PATH_NODE:
         LOG.debug(f"TODO process_chunk {dSTATE_TYPE[data_type]} bytes={length}")
     elif data_type == MESSENGER_STATE_TYPE_CONFERENCES:
