@@ -5,6 +5,12 @@ import sys
 import os
 import struct
 from socket import inet_ntop, AF_INET6, AF_INET
+
+try:
+    import msgpack
+except ImportError as e:
+    msgpack = None
+    
 try:
     # https://github.com/toxygen-project/toxygen
     from wrapper.toxencryptsave import ToxEncryptSave
@@ -62,7 +68,7 @@ def decrypt_data(data):
 
     oToxES = ToxEncryptSave()
     if not oToxES.is_data_encrypted(data):
-        LOG.warn('Not encrypted')
+        LOG.debug('Not encrypted')
         return data
     assert data[:8] == b'toxEsave', data[:8]
 
@@ -73,12 +79,12 @@ def decrypt_data(data):
     LOG.debug('Decrypted: ' +str(len(newData)) +' bytes')
     return newData
 
-def bin_to_string(raw_id, length=None):
+def str_to_hex(raw_id, length=None):
     if length is None: length = len(raw_id)
     res = ''.join('{:02x}'.format(ord(raw_id[i])) for i in range(length))
     return res.upper()
 
-def bin_to_str(raw_id, length=None):
+def bin_to_hex(raw_id, length=None):
     if length is None: length = len(raw_id)
     res = ''.join('{:02x}'.format(raw_id[i]) for i in range(length))
     return res.upper()
@@ -92,9 +98,9 @@ def process_chunk(index, state):
 
     if data_type == MESSENGER_STATE_TYPE_NOSPAMKEYS:
         result = state[index + 8:index + 8 + length]
-        nospam = bin_to_str(result[0:4])
-        public_key = bin_to_str(result[4:36])
-        private_key = bin_to_str(result[36:68])
+        nospam = bin_to_hex(result[0:4])
+        public_key = bin_to_hex(result[4:36])
+        private_key = bin_to_hex(result[36:68])
         LOG.info(f"nospam = {nospam}")
         LOG.info(f"public_key = {public_key}")
         LOG.info(f"private_key = {private_key}")
@@ -130,7 +136,7 @@ def process_chunk(index, state):
                     ipaddr = inet_ntop(AF_INET6, result[offset+8+1:offset+8+1+alen])
                 subtotal = 1 + alen + 2 + 32
                 port = struct.unpack_from(">H", result, offset+8+1+alen)[0]
-                pk = bin_to_str(result[offset+8+1+alen+2:offset+8+1+alen+2+32], 32)
+                pk = bin_to_hex(result[offset+8+1+alen+2:offset+8+1+alen+2+32], 32)
                
                 LOG.info(f"{dSTATE_TYPE[data_type]} #{relay} status={status} ipaddr={ipaddr} port={port} {pk}")
                 offset += subtotal                
@@ -139,8 +145,7 @@ def process_chunk(index, state):
             relay += 1
 
     elif data_type == MESSENGER_STATE_TYPE_FRIENDS:
-        """
-Friend:
+        """Friend:
 
 The integers in this structure are stored in Big Endian format.
 
@@ -176,7 +181,7 @@ The integers in this structure are stored in Big Endian format.
             delta = i*slen
             status = struct.unpack_from(">b", result, delta)[0]
             o = delta+1; l = 32
-            pk = bin_to_str(result[o:o+l], l)
+            pk = bin_to_hex(result[o:o+l], l)
             
             o = delta+1+32+1024+1+2+128; l = 2
             nsize = struct.unpack_from(">H", result, o)[0]
@@ -187,7 +192,7 @@ The integers in this structure are stored in Big Endian format.
             msize = struct.unpack_from(">H", result, o)[0]
             o = delta+1+32+1024+1+2+128+2; l = 1007
             mame = str(result[o:o+msize], 'utf-8')
-            LOG.info(f"Friend #{i} {dStatus[status]} {name} {pk}")
+            LOG.info(f"Friend #{i}  {dStatus[status]} {name} {pk}")
 
     elif data_type == MESSENGER_STATE_TYPE_NAME:
         LOG.info("User name = {}".format(str(state[index + 8:index + 8 + length], 'utf-8')))
@@ -202,7 +207,63 @@ The integers in this structure are stored in Big Endian format.
         LOG.info(f"{dSTATE_TYPE[data_type]} = {dStatus[status]}")
         
     elif data_type == MESSENGER_STATE_TYPE_GROUPS:
-        LOG.debug(f"TODO process_chunk {dSTATE_TYPE[data_type]} bytes={length}")
+        result = state[index + 8:index + 8 + length]
+        if msgpack:
+            try:
+                groups = msgpack.loads(result, raw=True)
+                LOG.debug(f"TODO process_chunk {dSTATE_TYPE[data_type]} len={len(groups)}")
+                i = 0
+                for group in groups:
+                    assert len(group) == 7, group
+                    i += 1
+                    state_values, \
+                    state_bin, \
+                    topic_info, \
+                    mod_list, \
+                    keys, \
+                    self_info, \
+                    saved_peers, = group
+                    
+                    assert len(state_values) == 8, state_values
+                    
+                    assert len(state_bin) == 5, state_bin
+
+                    assert len(topic_info) == 6, topic_info
+                    topic_info_topic = str(topic_info[3], 'utf-8')
+                    LOG.info(f"{dSTATE_TYPE[data_type]} #{i} topic_info_topic={topic_info_topic}")
+
+                    assert len(mod_list) == 2, mod_list
+                    num_moderators = mod_list[0]
+                    LOG.info(f"{dSTATE_TYPE[data_type]} #{i} num moderators={mod_list[0]}")
+                    #define CRYPTO_SIGN_PUBLIC_KEY_SIZE    32
+                    mods = mod_list[1]
+                    assert len(mods) % 32 == 0, len(mods)
+                    assert len(mods) == num_moderators * 32, len(mods)
+                    for j in range(num_moderators):
+                        mod = mods[j*32:j*32 + 32]
+                        LOG.info(f"{dSTATE_TYPE[data_type]} group#{i} mod#{j} sig_pk={bin_to_hex(mod)}")
+                        
+                    assert len(keys) == 4, keys
+                    LOG.info(f"{dSTATE_TYPE[data_type]} #{i} {repr(list(map(len, keys)))}")
+                    chat_public_key, chat_secret_key, self_public_key, self_secret_key = keys
+                    LOG.info(f"{dSTATE_TYPE[data_type]} #{i} chat_public_key={bin_to_hex(chat_public_key)}")
+                    if int(bin_to_hex(chat_secret_key), 16) != 0:
+                        LOG.info(f"{dSTATE_TYPE[data_type]} #{i} chat_secret_key={bin_to_hex(chat_secret_key)}")
+                        
+                    LOG.info(f"{dSTATE_TYPE[data_type]} #{i} self_public_key={bin_to_hex(self_public_key)}")
+                    LOG.info(f"{dSTATE_TYPE[data_type]} #{i} self_secret_key={bin_to_hex(self_secret_key)}")
+
+                    assert len(self_info) == 4, self_info
+                    self_nick_len, self_role, self_status, self_nick = self_info
+                    self_nick = str(self_nick, 'utf-8')
+
+                    LOG.info(f"{dSTATE_TYPE[data_type]} #{i} self_nick={repr(self_nick)}")
+                    assert len(saved_peers) == 2, saved_peers
+                    
+            except Exception as e:            
+                LOG.warn(f"process_chunk {dSTATE_TYPE[data_type]} #{i} error={e}")
+        else:
+            LOG.debug(f"TODO process_chunk {dSTATE_TYPE[data_type]} #{i} bytes={length}")
     elif data_type == MESSENGER_STATE_TYPE_TCP_RELAY:
         """Node Info (packed node format)
 
@@ -240,7 +301,7 @@ called the “packed node format”.
                 ipaddr = inet_ntop(AF_INET6, result[delta+1:delta+1+alen])
             total = 1 + alen + 2 + 32
             port = struct.unpack_from(">H", result, delta+1+alen)[0]
-            pk = bin_to_str(result[delta+1+alen+2:delta+1+alen+2+32], 32)
+            pk = bin_to_hex(result[delta+1+alen+2:delta+1+alen+2+32], 32)
             LOG.info(f"{dSTATE_TYPE[data_type]} #{relay} bytes={length} {status} {ipv} {af} {ipaddr} {port} {pk}")
             delta += total
             length -= total
