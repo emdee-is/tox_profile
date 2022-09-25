@@ -17,6 +17,8 @@ Just put the toxygen/toxygen directory on your PYTHONPATH
 You also need to link your libtoxcore.so and libtoxav.so
 and libtoxencryptsave.so into toxygen/toxygen/libs/
 Link all 3 from libtoxcore.so files if you have only libtoxcore.so
+There is an updated and bugfixed version in:
+<https://git.plastiras.org/emdee/toxygen_wrapper>
 
 If you want to read the GROUPS section, you need Python msgpack:
 <https://pypi.org/project/msgpack/>

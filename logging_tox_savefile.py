@@ -236,7 +236,7 @@ The integers in this structure are stored in Big Endian format.
 
                     assert len(mod_list) == 2, mod_list
                     num_moderators = mod_list[0]
-                    LOG.info(f"{dSTATE_TYPE[data_type]} #{i} num moderators={mod_list[0]}")
+                    LOG.debug(f"{dSTATE_TYPE[data_type]} #{i} num moderators={mod_list[0]}")
                     #define CRYPTO_SIGN_PUBLIC_KEY_SIZE    32
                     mods = mod_list[1]
                     assert len(mods) % 32 == 0, len(mods)
@@ -246,7 +246,7 @@ The integers in this structure are stored in Big Endian format.
                         LOG.info(f"{dSTATE_TYPE[data_type]} group#{i} mod#{j} sig_pk={bin_to_hex(mod)}")
 
                     assert len(keys) == 4, keys
-                    LOG.info(f"{dSTATE_TYPE[data_type]} #{i} {repr(list(map(len, keys)))}")
+                    LOG.debug(f"{dSTATE_TYPE[data_type]} #{i} {repr(list(map(len, keys)))}")
                     chat_public_key, chat_secret_key, self_public_key, self_secret_key = keys
                     LOG.info(f"{dSTATE_TYPE[data_type]} #{i} chat_public_key={bin_to_hex(chat_public_key)}")
                     if int(bin_to_hex(chat_secret_key), 16) != 0:
