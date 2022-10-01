@@ -8,6 +8,46 @@ prints to stdout various things that it finds.  Then it writes what it
 found in YAML to stderr.  Later it can be extended to print out JSON
 or YAML, and then extended to accept JSON or YAML to write a profile.
 
+## Usage
+
+Reads a tox profile and prints out information on what's in there to stderr.
+Call it with one argument, the filename of the profile for the decrypt or info
+commands, or the filename of the nodes file for the nodes command.
+
+3 commands are supported:
+1. ```--command decrypt``` decrypts the profile and writes to the result
+to stdout
+2. ```--command info``` prints info about what's in the Tox profile to stderr
+3. ```--command nodes``` assumes you are reading a json nodes file instead of
+  a profile
+
+```
+usage: logging_tox_savefile.py [-h] [--output OUTPUT]
+                               [--command {info,decrypt,nodes}]
+                               [--indent INDENT]
+                               [--info {info,repr,yaml,json,pprint}]
+                               [--nodes {select_tcp,select_udp,select_version,nmap_tcp,nmap_udp}]
+                               [--download_nodes_url DOWNLOAD_NODES_URL]
+                               [profile]
+```
+Positional arguments:
+```
+  profile               tox profile file - may be encrypted
+```
+Optional arguments:
+```
+  -h, --help            show this help message and exit
+  --command {info,decrypt,nodes}
+                        Action command - default: info
+  --output OUTPUT       Destination for info/decrypt/nodes - defaults to stdout
+  --info {info,repr,yaml,json,pprint}
+                        Format for info command
+  --nodes {select_tcp,select_udp,select_version,nmap_tcp,nmap_udp}
+                        Action for nodes command (requires jq)
+  --indent INDENT       Indent for yaml/json/pprint
+  --download_nodes_url DOWNLOAD_NODES_URL
+```
+
 ## Requirements
 
 If you want to read encrypted profiles, you need to download
@@ -32,3 +72,6 @@ If you have coloredlogs installed it will make use of it:
 Because it's written in Python it is easy to extend to, for example,
 rekeying a profile when copying a profile to a new device:
 <https://git.plastiras.org/emdee/tox_profile/wiki/MultiDevice-Announcements-POC>
+
+There is a copy of the Tox [spec](https://toktok.ltd/spec.html)
+in the repo - it is missing any description of the groups section.
