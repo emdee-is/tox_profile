@@ -30,7 +30,8 @@ commands, or the filename of the nodes file for the nodes command.
        choices=['select_tcp', 'select_udp', 'nmap_tcp', 'select_version', 'nmap_udp']
        select_udp      - select udp nodes
        select_tcp      - select tcp nodes
-       nmap_tcp        - test tcp nodes with namp
+       nmap_udp        - test UDP nodes with nmap
+       nmap_tcp        - test TCP nodes with nmap
        select_version  - select nodes that are the latest version
        download        - download nodes from --download_nodes_url
   --download_nodes_url https://nodes.tox.chat/json
@@ -335,17 +336,17 @@ The Node Info data structure contains a Transport Protocol, a Socket
             af = 'IPv6'
             alen = 16
             ipaddr = inet_ntop(AF_INET6, result[delta+1:delta+1+alen])
-            total = 1 + alen + 2 + 32
-            port = int(struct.unpack_from(">H", result, delta+1+alen)[0])
-            pk = bin_to_hex(result[delta+1+alen+2:delta+1+alen+2+32], 32)
-            LOG.info(f"DHTnode #{relay} bytes={length} status={status} ip={ipv} af={af} ip={ipaddr} port={port} pk={pk}")
-            lIN += [{"Bytes": length,
-                     "Status": status,
-                     "Ip": ipv,
-                     "Af": af,
-                     "Ip": ipaddr,
-                     "Port": port,
-                     "Pk": pk}]
+        total = 1 + alen + 2 + 32
+        port = int(struct.unpack_from(">H", result, delta+1+alen)[0])
+        pk = bin_to_hex(result[delta+1+alen+2:delta+1+alen+2+32], 32)
+        LOG.info(f"DHTnode #{relay} bytes={length} status={status} ip={ipv} af={af} ip={ipaddr} port={port} pk={pk}")
+        lIN += [{"Bytes": length,
+                 "Status": status,
+                 "Ip": ipv,
+                 "Af": af,
+                 "Ip": ipaddr,
+                 "Port": port,
+                 "Pk": pk}]
         if bUSE_NMAP:
             cmd = f"nmap -Pn -n -sT -p T:{port} {ipaddr}"
 
@@ -400,7 +401,7 @@ def lProcessDHTnodes(state, index, length, result):
     return lIN
 
 def process_chunk(index, state):
-    global lOUT, bOUT, iTOTAL
+    global lOUT, bOUT, iTOTAL, aOUT
 
     length = struct.unpack_from("<H", state, index)[0]
     data_type = struct.unpack_from("<H", state, index + 4)[0]
@@ -423,29 +424,29 @@ def process_chunk(index, state):
         aIN = {"Nospam": f"{nospam}",
                "Public_key": f"{public_key}",
                "Private_key": f"{private_key}"}
-        lOUT += [{"Nospam_keys": aIN}]
+        lOUT += [{"NOSPAMKEYS": aIN}]; aOUT.update({"NOSPAMKEYS": aIN})
 
     elif data_type == MESSENGER_STATE_TYPE_DHT:
         LOG.debug(f"process_chunk {dSTATE_TYPE[data_type]} length={length}")
         lIN = lProcessDHTnodes(state, index, length, result)
-        if lIN: lOUT += [{"DHT_nodes": lIN}]
+        if lIN: lOUT += [{"DHT": lIN}]; aOUT.update({"DHT": lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_FRIENDS:
         LOG.debug(f"TODO process_chunk {length // 2216} FRIENDS {length} {length % 2216}")
         lIN = lProcessFriends(state, index, length, result)
-        if lIN: lOUT += [{"Friends": lIN}]
+        if lIN: lOUT += [{"FRIENDS": lIN}]; aOUT.update({"FRIENDS": lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_NAME:
         name = str(state[index + 8:index + 8 + length], 'utf-8')
         LOG.info("Nick_name = " +name)
-        aIN = {"Nick_name": name}
-        lOUT += [{"Nick_name": aIN}]
+        aIN = {"NAME": name}
+        lOUT += [{"Nick_name": aIN}]; aOUT.update({"Nick_name": aIN})
 
     elif data_type == MESSENGER_STATE_TYPE_STATUSMESSAGE:
         mess = str(state[index + 8:index + 8 + length], 'utf-8')
         LOG.info(f"StatusMessage = " +mess)
         aIN = {"Status_message": mess}
-        lOUT += [{"Status_message": aIN}]
+        lOUT += [{"STATUSMESSAGE": aIN}]; aOUT.update({"STATUSMESSAGE": aIN})
 
     elif data_type == MESSENGER_STATE_TYPE_STATUS:
         # 1  uint8_t status (0 = online, 1 = away, 2 = busy)
@@ -454,25 +455,27 @@ def process_chunk(index, state):
         status = dStatus[status]
         LOG.info(f"{dSTATE_TYPE[data_type]} = " +status)
         aIN = {f"Online_status": status}
-        lOUT += [{"Online_status": aIN}]
+        lOUT += [{"STATUS": aIN}]; aOUT.update({"STATUS": aIN})
 
     elif data_type == MESSENGER_STATE_TYPE_GROUPS:
         lIN = lProcessGroups(state, index, length, result)
-        if lIN: lOUT += [{"Groups": lIN}]
+        if lIN: lOUT += [{"GROUPS": lIN}]; aOUT.update({"GROUPS": lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_TCP_RELAY:
         lIN = lProcessTcpRelay(state, index, length, result)
-        if lIN: lOUT += [{"Tcp_relays": lIN}]
+        if lIN: lOUT += [{"TCP_RELAY": lIN}]; aOUT.update({"TCP_RELAY": lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_PATH_NODE:
         LOG.debug(f"TODO process_chunk {dSTATE_TYPE[data_type]} bytes={length}")
+        lIN = []
+        if lIN: lOUT += [{"PATH_NODE": lIN}]; aOUT.update({"PATH_NODE": lIN})
         
     elif data_type == MESSENGER_STATE_TYPE_CONFERENCES:
         if length > 0:
             LOG.debug(f"TODO process_chunk {dSTATE_TYPE[data_type]} bytes={length}")
         else:
             LOG.info(f"NO {dSTATE_TYPE[data_type]}")
-            lOUT += [{"Conferences": []}]
+            lOUT += [{"CONFERENCES": []}]; aOUT.update({"CONFERENCES": []})
 
     elif data_type != MESSENGER_STATE_TYPE_END:
         LOG.warn("UNRECOGNIZED datatype={datatype}")
@@ -518,7 +521,7 @@ jq '.|with_entries(select(.key|match("nodes"))).nodes[]|select(.status_tcp)|sele
 	else
 	    echo INFO $ip "${ports[*]}"
 	    cmd="nmap -Pn -n -sT -p T:"`echo "${ports[*]}" |sed -e 's/ /,/g'`
-	    dbug $cmd $ip
+	    echo DBUG $cmd $ip
 	    $cmd $ip | grep /tcp
 	fi
 	ip=""
@@ -551,6 +554,31 @@ def vBashFileNmapUdp():
                       replace('status_tcp','status_udp'))
         os.chmod(sFile, 0o0775)
     return sFile
+
+def vOsSystemNmapUdp(l, oArgs):
+    iErrs = 0
+    for elt in aOUT["DHT"]:
+        cmd = f"sudo nmap -Pn -n -sU -p U:{elt['port']} {elt['ipaddr']}"
+        iErrs += os.system(cmd +f" >> {oArgs.output} 2>&1")
+    if iErrs:
+        LOG.warn(f"{oArgs.info} {iErrs} ERRORs to {oArgs.output}")
+        print(f"{oArgs.info} {iErrs} ERRORs to {oArgs.output}")
+    else:
+        LOG.info(f"{oArgs.info} NO errors to {oArgs.output}")
+        print(f"{oArgs.info} NO errors to {oArgs.output}")
+
+def vOsSystemNmapTcp(l, oArgs):
+    iErrs = 0
+    for elt in l:
+        cmd = f"sudo nmap -Pn -n -sT -p T:{elt['port']} {elt['ipaddr']}"
+        print(f"{oArgs.info} NO errors to {oArgs.output}")
+        iErrs += os.system(cmd +f" >> {oArgs.output} 2>&1")
+    if iErrs:
+        LOG.warn(f"{oArgs.info} {iErrs} ERRORs to {oArgs.output}")
+        print(f"{oArgs.info} {iErrs} ERRORs to {oArgs.output}")
+    else:
+        LOG.info(f"{oArgs.info} NO errors to {oArgs.output}")
+        print(f"{oArgs.info} NO errors to {oArgs.output}")
 
 def vSetupLogging(loglevel=logging.DEBUG):
     global LOG
@@ -588,7 +616,7 @@ def oMainArgparser(_=None):
     parser.add_argument('--indent', type=int, default=2,
                         help='Indent for yaml/json/pprint')
     parser.add_argument('--info', type=str, default='info',
-                        choices=['info', 'repr', 'yaml','json', 'pprint'],
+                        choices=['info', 'repr', 'yaml','json', 'pprint', 'nmap_tcp', 'nmap_udp'],
                         help='Format for info command')
     choices = []
     if bHAVE_JQ:
@@ -702,26 +730,36 @@ if __name__ == '__main__':
         # toxEsave
         assert bSAVE[:8] == bOUT, "Not a Tox profile"
 
-        lOUT = []
+        iErrs = 0
+        lOUT = []; aOUT = {}
         process_chunk(len(bOUT), bSAVE)
         if lOUT:
             if oArgs.output:
-                oStream = open(oArgs.output, 'rb')
+                oStream = open(oArgs.output, 'wb')
             else:
                 oStream = sys.stdout
             if oArgs.info == 'yaml' and yaml:
-                yaml.dump(lOUT, stream=oStream, indent=oArgs.indent)
+                yaml.dump(aOUT, stream=oStream, indent=oArgs.indent)
                 oStream.write('\n')
             elif oArgs.info == 'json' and json:
-                json.dump(lOUT, oStream, indent=oArgs.indent)
+                json.dump(aOUT, oStream, indent=oArgs.indent)
                 oStream.write('\n')
             elif oArgs.info == 'repr':
-                oStream.write(repr(lOUT))
+                oStream.write(repr(aOUT))
                 oStream.write('\n')
             elif oArgs.info == 'pprint':
-                pprint(lOUT, stream=oStream, indent=oArgs.indent, width=80)
+                pprint(aOUT, stream=oStream, indent=oArgs.indent, width=80)
             elif oArgs.info == 'info':
                 pass
+            elif oArgs.info == 'nmap_tcp':
+                assert oArgs.output, "--output required for this command"
+                oStream.close()
+                vOsSystemNmapTcp(aOUT["TCP_RELAY"], oArgs)
+            elif oArgs.info == 'nmap_udp':
+                assert oArgs.output, "--output required for this command"
+                oStream.close()
+                vOsSystemNmapUdp(aOUT["DHT"], oArgs)
+
         # were short repacking as we read - 446 bytes missing
         LOG.debug(f"len bSAVE={len(bSAVE)} bOUT={len(bOUT)} delta={len(bSAVE) - len(bOUT)} iTOTAL={iTOTAL}")
     

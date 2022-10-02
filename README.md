@@ -25,7 +25,7 @@ to stdout
 usage: logging_tox_savefile.py [-h] [--output OUTPUT]
                                [--command {info,decrypt,nodes}]
                                [--indent INDENT]
-                               [--info {info,repr,yaml,json,pprint}]
+                               [--info {info,repr,yaml,json,pprint,nmap_udp,nmap_tcp}]
                                [--nodes {select_tcp,select_udp,select_version,nmap_tcp,nmap_udp}]
                                [--download_nodes_url DOWNLOAD_NODES_URL]
                                [profile]
@@ -40,13 +40,39 @@ Optional arguments:
   --command {info,decrypt,nodes}
                         Action command - default: info
   --output OUTPUT       Destination for info/decrypt/nodes - defaults to stdout
-  --info {info,repr,yaml,json,pprint}
+  --info {info,repr,yaml,json,pprint,nmap_udp,nmap_tcp}
                         Format for info command
   --nodes {select_tcp,select_udp,select_version,nmap_tcp,nmap_udp}
                         Action for nodes command (requires jq)
   --indent INDENT       Indent for yaml/json/pprint
   --download_nodes_url DOWNLOAD_NODES_URL
 ```
+
+### --command info
+
+```info``` will output the profile on stdout, or to a file with ```--output```
+
+Choose one of ```{info,repr,yaml,json,pprint}```
+for the format for info command.
+
+Choose one of ```{nmap_udp,nmap_tcp}```
+to run tests using ```nmap``` for the ```DHT``` and ```TCP_RELAY```
+sections of the profile. Reguires ```nmap``` and uses ```sudo```.
+
+### --command nodes
+
+Takes a DHTnodes.json file as an argument.
+Choose one of ```{select_tcp,select_udp,select_version}```
+for ```--nodes``` to select TCP nodes, UDP nodes or nodes with the latest version.
+Requires ```jq```.
+
+Choose one of ```{nmap_tcp,nmap_udp}```
+to run tests using ```nmap``` for the ```tcp``` and ```udp```
+nodes. Reguires ```nmap``` and uses ```sudo```.
+
+### --command decrypt
+
+Decrypt a profile.
 
 ## Requirements
 
