@@ -215,11 +215,11 @@ def lProcessGroups(state, index, length, result):
     lIN = []
     i = 0
     if not msgpack:
-        LOG.debug(f"TODO process_chunk Groups = no msgpack bytes={length}")
+        LOG.warn(f"process_chunk Groups = NO msgpack bytes={length}")
         return []
     try:
         groups = msgpack.loads(result, raw=True)
-        LOG.debug(f"TODO process_chunk Groups len={len(groups)}")
+        LOG.debug(f"process_chunk {label} len={len(groups)}")
         for group in groups:
             assert len(group) == 7, group
             i += 1
@@ -327,10 +327,10 @@ The Node Info data structure contains a Transport Protocol, a Socket
     while length > 0:
         status = struct.unpack_from(">B", result, delta)[0]
         if status >= 128:
-            ipv = 'TCP'
+            prot = 'TCP'
             af = status - 128
         else:
-            ipv = 'UDP'
+            prot = 'UDP'
             af = status
         if af == 2:
             af = 'IPv4'
@@ -343,10 +343,10 @@ The Node Info data structure contains a Transport Protocol, a Socket
         total = 1 + alen + 2 + 32
         port = int(struct.unpack_from(">H", result, delta+1+alen)[0])
         pk = bin_to_hex(result[delta+1+alen+2:delta+1+alen+2+32], 32)
-        LOG.info(f"{label} #{relay} bytes={length} status={status} ip={ipv} af={af} ip={ipaddr} port={port} pk={pk}")
+        LOG.info(f"{label} #{relay} bytes={length} status={status} prot={prot} af={af} ip={ipaddr} port={port} pk={pk}")
         lIN += [{"Bytes": length,
                  "Status": status,
-                 "Ip": ipv,
+                 "Prot": prot,
                  "Af": af,
                  "Ip": ipaddr,
                  "Port": port,
@@ -375,7 +375,7 @@ def lProcessDHTnodes(state, index, length, result, label="DHTnode"):
         while offset < slen: #loop over nodes
             status = struct.unpack_from(">B", result, offset+8)[0]
             assert status < 12
-            ipv = 'UDP'
+            prot = 'UDP'
             if status == 2:
                 af = 'IPv4'
                 alen = 4
@@ -389,11 +389,13 @@ def lProcessDHTnodes(state, index, length, result, label="DHTnode"):
             pk = bin_to_hex(result[offset+8+1+alen+2:offset+8+1+alen+2+32], 32)
 
             LOG.info(f"{label} #{relay} status={status} ipaddr={ipaddr} port={port} {pk}")
-            lIN += [{"status": status,
-                     "af": af,
-                     "ipaddr": ipaddr,
-                     "port": port,
-                     "pk": pk}]
+            lIN += [{
+                "Status": status,
+                "Prot": prot,
+                "Af": af,
+                "Ip": ipaddr,
+                "Port": port,
+                "Pk": pk}]
             offset += subtotal
         delta += total
         length -= total
@@ -425,23 +427,23 @@ def process_chunk(index, state):
         aIN = {"Nospam": f"{nospam}",
                "Public_key": f"{public_key}",
                "Private_key": f"{private_key}"}
-        lOUT += [{"NOSPAMKEYS": aIN}]; aOUT.update({"NOSPAMKEYS": aIN})
+        lOUT += [{label: aIN}]; aOUT.update({label: aIN})
 
     elif data_type == MESSENGER_STATE_TYPE_DHT:
-        LOG.debug(f"process_chunk {dSTATE_TYPE[data_type]} length={length}")
+        LOG.debug(f"process_chunk {label} length={length}")
         lIN = lProcessDHTnodes(state, index, length, result)
-        if lIN: lOUT += [{"DHT": lIN}]; aOUT.update({"DHT": lIN})
+        lOUT += [{label: lIN}]; aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_FRIENDS:
-        LOG.debug(f"TODO process_chunk {length // 2216} FRIENDS {length} {length % 2216}")
+        LOG.debug(f"process_chunk {label} {length // 2216} FRIENDS {length} {length % 2216}")
         lIN = lProcessFriends(state, index, length, result)
-        if lIN: lOUT += [{"FRIENDS": lIN}]; aOUT.update({"FRIENDS": lIN})
+        lOUT += [{"FRIENDS": lIN}]; aOUT.update({"FRIENDS": lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_NAME:
         name = str(state[index + 8:index + 8 + length], 'utf-8')
         LOG.info("Nick_name = " +name)
         aIN = {"NAME": name}
-        lOUT += [{"Nick_name": aIN}]; aOUT.update({"Nick_name": aIN})
+        lOUT += [{label: aIN}]; aOUT.update({label: aIN})
 
     elif data_type == MESSENGER_STATE_TYPE_STATUSMESSAGE:
         mess = str(state[index + 8:index + 8 + length], 'utf-8')
@@ -454,31 +456,32 @@ def process_chunk(index, state):
         dStatus = {0: 'online', 1: 'away', 2: 'busy'}
         status = struct.unpack_from(">b", state, index)[0]
         status = dStatus[status]
-        LOG.info(f"{dSTATE_TYPE[data_type]} = " +status)
+        LOG.info(f"{label} = " +status)
         aIN = {f"Online_status": status}
         lOUT += [{"STATUS": aIN}]; aOUT.update({"STATUS": aIN})
 
     elif data_type == MESSENGER_STATE_TYPE_GROUPS:
         lIN = lProcessGroups(state, index, length, result)
-        if lIN: lOUT += [{"GROUPS": lIN}]; aOUT.update({"GROUPS": lIN})
+        lOUT += [{"GROUPS": lIN}]; aOUT.update({"GROUPS": lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_TCP_RELAY:
         lIN = lProcessNodeInfo(state, index, length, result, "TCPnode")
-        if lIN: lOUT += [{"TCP_RELAY": lIN}]; aOUT.update({"TCP_RELAY": lIN})
+        lOUT += [{label: lIN}]; aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_PATH_NODE:
         #define NUM_SAVED_PATH_NODES 8
         assert length % 8 == 0, length
-        LOG.debug(f"TODO process_chunk {dSTATE_TYPE[data_type]} bytes={length}")
+        LOG.debug(f"process_chunk {label} bytes={length}")
         lIN = lProcessNodeInfo(state, index, length, result, "PATHnode")
-        if lIN: lOUT += [{label: lIN}]; aOUT.update({label: lIN})
+        lOUT += [{label: lIN}]; aOUT.update({label: lIN})
         
     elif data_type == MESSENGER_STATE_TYPE_CONFERENCES:
+        lIN = []
         if length > 0:
-            LOG.debug(f"TODO process_chunk {dSTATE_TYPE[data_type]} bytes={length}")
+            LOG.debug(f"TODO process_chunk {label} bytes={length}")
         else:
-            LOG.info(f"NO {dSTATE_TYPE[data_type]}")
-            lOUT += [{"CONFERENCES": []}]; aOUT.update({"CONFERENCES": []})
+            LOG.info(f"NO {label}")
+        lOUT += [{label: []}]; aOUT.update({label: []})
 
     elif data_type != MESSENGER_STATE_TYPE_END:
         LOG.warn("UNRECOGNIZED datatype={datatype}")
@@ -560,7 +563,7 @@ def vBashFileNmapUdp():
 def vOsSystemNmapUdp(l, oArgs):
     iErrs = 0
     for elt in aOUT["DHT"]:
-        cmd = f"sudo nmap -Pn -n -sU -p U:{elt['port']} {elt['ipaddr']}"
+        cmd = f"sudo nmap -Pn -n -sU -p U:{elt['Port']} {elt['Ip']}"
         iErrs += os.system(cmd +f" >> {oArgs.output} 2>&1")
     if iErrs:
         LOG.warn(f"{oArgs.info} {iErrs} ERRORs to {oArgs.output}")
@@ -572,7 +575,7 @@ def vOsSystemNmapUdp(l, oArgs):
 def vOsSystemNmapTcp(l, oArgs):
     iErrs = 0
     for elt in l:
-        cmd = f"sudo nmap -Pn -n -sT -p T:{elt['port']} {elt['ipaddr']}"
+        cmd = f"sudo nmap -Pn -n -sT -p T:{elt['Port']} {elt['Ip']}"
         print(f"{oArgs.info} NO errors to {oArgs.output}")
         iErrs += os.system(cmd +f" >> {oArgs.output} 2>&1")
     if iErrs:
@@ -659,12 +662,12 @@ if __name__ == '__main__':
 
     oStream = None
     if oArgs.command == 'decrypt':
-        if oArgs.output:
-            oStream = open(oArgs.output, 'rb')
-        else:
-            oStream = sys.stdout
-        oStream.write(bSAVE)
-        
+        assert oArgs.output, "--output required for this command"
+        oStream = open(oArgs.output, 'wb')
+        iRet = oStream.write(bSAVE)
+        LOG.info(f"Wrote {iRet} to {oArgs.output}")
+        iRet = 0
+
     elif oArgs.command == 'nodes':
         iRet = -1
         if oArgs.nodes == 'select_tcp':
