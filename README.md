@@ -74,12 +74,12 @@ decryption).
 
 Takes a DHTnodes.json file as an argument.
 Choose one of ```{select_tcp,select_udp,select_version}```
-for ```--nodes``` to select TCP nodes, UDP nodes or nodes with the latest version.
-Requires ```jq```.
+for ```--nodes``` to select TCP nodes, UDP nodes,
+or nodes with the latest version. Requires ```jq```.
 
-Choose one of ```{nmap_tcp,nmap_udp}```
-to run tests using ```nmap``` for the ```tcp``` and ```udp```
-nodes. Reguires ```nmap``` and uses ```sudo```.
+Choose one of ```{nmap_tcp,nmap_udp}``` to run tests using ```nmap```
+for the ```status_tcp==True``` and ```status_udp==True``` nodes.
+Reguires ```nmap``` and uses ```sudo```.
 
 ### --command decrypt
 
@@ -96,10 +96,15 @@ and it will save an copy of the edited file to the
 and Supported Quads (section,num,key,type) that can be edited.
 Currently it is:
 ```
-NAME,0,Nick_name,str
-STATUSMESSAGE,0,Status_message,str
-STATUS,0,Online_status,int
+NAME,.,Nick_name,str
+STATUSMESSAGE,.,Status_message,str
+STATUS,.,Online_status,int
 ```
+The ```num``` field is to accomodate sections that have lists:
+* ```.``` is a placeholder for sections that don't have lists.
+* ```<int>``` is for the nth element of the list, zero-based.
+* ```*``` is for all elements of the list.
+
 
 ## Requirements
 

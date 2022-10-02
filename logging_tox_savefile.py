@@ -454,7 +454,7 @@ def process_chunk(index, state, oArgs=None):
         aIN = {"Nick_name": name}
         lOUT += [{label: aIN}]; aOUT.update({label: aIN})
         if oArgs.command == 'edit' and section == label:
-            ## NAME,0,Nick_name,str
+            ## NAME,.,Nick_name,str
             if key == "Nick_name":
                 result = bytes(val, sENC)
                 length = len(result)
@@ -466,7 +466,7 @@ def process_chunk(index, state, oArgs=None):
         aIN = {"Status_message": mess}
         lOUT += [{label: aIN}]; aOUT.update({label: aIN})
         if oArgs.command == 'edit' and section == label:
-            ## STATUSMESSAGE,0,Status_message,str
+            ## STATUSMESSAGE,.,Status_message,str
             if key == "Status_message":
                 result = bytes(val, sENC)
                 length = len(result)
@@ -481,7 +481,7 @@ def process_chunk(index, state, oArgs=None):
         aIN = {f"Online_status": status}
         lOUT += [{"STATUS": aIN}]; aOUT.update({"STATUS": aIN})
         if oArgs.command == 'edit' and section == label:
-            ## STATUS,0,Online_status,int
+            ## STATUS,.,Online_status,int
             if key == "Online_status":
                 result = struct.pack(">b", int(val))
                 length = len(result)
@@ -696,9 +696,9 @@ def oMainArgparser(_=None):
 
 # grep '#''#' logging_tox_savefile.py|sed -e 's/.* //'
 sEDIT_HELP = """
-NAME,0,Nick_name,str
-STATUSMESSAGE,0,Status_message,str
-STATUS,0,Online_status,int
+NAME,.,Nick_name,str
+STATUSMESSAGE,.,Status_message,str
+STATUS,.,Online_status,int
 """
 
 global lOUT, bOUT, aOUT, sENC
