@@ -7,7 +7,7 @@ Call it with one argument, the filename of the profile for the decrypt or info
 commands, or the filename of the nodes file for the nodes command.
 
 3 commands are supported:
---command decrypt 
+--command decrypt
   decrypts the profile and writes to the result to stdout
 
 --command info
@@ -20,16 +20,16 @@ commands, or the filename of the nodes file for the nodes command.
 """
   --output Destination for info/decrypt - defaults to stdout
   --info default='info',
-         choices=['info', 'repr', 'yaml','json', 'pprint']
+         choices=['info', 'save', 'repr', 'yaml','json', 'pprint']
          with --info=info prints info about the profile to stderr
          nmap_udp        - test DHT nodes with nmap
          nmap_tcp        - test TCP_RELAY nodes with nmap
          nmap_onion      - test PATH_NODE nodes with nmap
-         indents the output as: 'yaml','json', 'pprint' 
+         indents the output as: 'yaml','json', 'pprint'
   --indent for pprint/yaml/json default=2
 
   --output Destination for the command - required
-  --nodes 
+  --nodes
        choices=['select_tcp', 'select_udp', 'nmap_tcp', 'select_version', 'nmap_udp']
        select_udp      - select udp nodes
        select_tcp      - select tcp nodes
@@ -87,14 +87,18 @@ except ImportError as e:
     print("Link all 3 from libtoxcore.so if you have only libtoxcore.so")
     ToxEncryptSave = None
     download_url = None
-    
+
 LOG = logging.getLogger('TSF')
 
-bHAVE_NMAP = shutil.which('nmap')
+# Fix for Windows
 sDIR = os.environ.get('TMPDIR', '/tmp')
-# nodes
 sTOX_VERSION = "1000002018"
+bHAVE_NMAP = shutil.which('nmap')
 bHAVE_JQ = shutil.which('jq')
+bMARK = b'\x00\x00\x00\x00\x1f\x1b\xed\x15'
+bDEBUG = 'DEBUG' in os.environ and os.environ['DEBUG'] != 0
+def trace(s): LOG.log(LOG.level, '+ ' +s)
+LOG.trace = trace
 
 #messenger.c
 MESSENGER_STATE_TYPE_NOSPAMKEYS = 1
@@ -172,6 +176,7 @@ Length  Contents
 8  uint64_t Last seen time
 
 """
+    global sENC
     dStatus = { #  Status  Meaning
                0:  'Not a friend',
                1:  'Friend added',
@@ -191,12 +196,12 @@ Length  Contents
         o = delta+1+32+1024+1+2+128; l = 2
         nsize = struct.unpack_from(">H", result, o)[0]
         o = delta+1+32+1024+1+2; l = 128
-        name = str(result[o:o+nsize], 'utf-8')
+        name = str(result[o:o+nsize], sENC)
 
         o = delta+1+32+1024+1+2+128+2+1007; l = 2
         msize = struct.unpack_from(">H", result, o)[0]
         o = delta+1+32+1024+1+2+128+2; l = 1007
-        mame = str(result[o:o+msize], 'utf-8')
+        mame = str(result[o:o+msize], sENC)
         LOG.info(f"Friend #{i}  {dStatus[status]} {name} {pk}")
         lIN += [{"Status": dStatus[status],
                  "Name": name,
@@ -207,6 +212,7 @@ def lProcessGroups(state, index, length, result, label="GROUPS"):
     """
     No GROUPS description in spec.html
     """
+    global sENC
     lIN = []
     i = 0
     if not msgpack:
@@ -218,7 +224,7 @@ def lProcessGroups(state, index, length, result, label="GROUPS"):
         for group in groups:
             assert len(group) == 7, group
             i += 1
-            
+
             state_values, \
             state_bin, \
             topic_info, \
@@ -237,7 +243,8 @@ def lProcessGroups(state, index, length, result, label="GROUPS"):
             topic_lock, \
             voice_state = state_values
             LOG.info(f"lProcessGroups #{i} version={version}")
-            dBINS = {"Version": version}
+            dBINS = {"Version": version,
+                     "Privacy_state": privacy_state}
             lIN += [{"State_values": dBINS}]
 
             assert len(state_bin) == 5, state_bin
@@ -251,7 +258,7 @@ def lProcessGroups(state, index, length, result, label="GROUPS"):
             lIN += [{"State_bin": dBINS}]
 
             assert len(topic_info) == 6, topic_info
-            topic_info_topic = str(topic_info[3], 'utf-8')
+            topic_info_topic = str(topic_info[3], sENC)
             LOG.info(f"lProcessGroups #{i} topic_info_topic={topic_info_topic}")
             dBINS = {"topic_info_topic": topic_info_topic}
             lIN += [{"Topic_info": dBINS}]
@@ -290,7 +297,7 @@ def lProcessGroups(state, index, length, result, label="GROUPS"):
 
             assert len(self_info) == 4, self_info
             self_nick_len, self_role, self_status, self_nick = self_info
-            self_nick = str(self_nick, 'utf-8')
+            self_nick = str(self_nick, sENC)
             LOG.info(f"lProcessGroups #{i} self_nick={self_nick}")
             dBINS = {"Self_nick": self_nick}
             lIN += [{"Self_info": dBINS}]
@@ -398,8 +405,9 @@ def lProcessDHTnodes(state, index, length, result, label="DHTnode"):
         relay += 1
     return lIN
 
-def process_chunk(index, state):
+def process_chunk(index, state, oArgs=None):
     global lOUT, bOUT, aOUT
+    global sENC
 
     length = struct.unpack_from("<I", state, index)[0]
     data_type = struct.unpack_from("<H", state, index + 4)[0]
@@ -407,19 +415,17 @@ def process_chunk(index, state):
     assert check == 0x01CE, check
     new_index = index + length + 8
     result = state[index + 8:index + 8 + length]
-    
+
     label = dSTATE_TYPE[data_type]
-    diff =  index - len(bOUT)
-    if diff:
-        LOG.debug(f"PROCESS_CHUNK {label} index={index} bOUT={len(bOUT)} delta={diff} length={length}")
-    # plan on repacking as we read - this is just a starting point
-    # We'll add the results back to bOUT to see if we get what we started with.
-    # Then will will be able to selectively null sections or selectively edit.
-    bOUT += struct.pack("<I", length) + \
-        struct.pack("<H", data_type) + \
-        struct.pack("<H", check) + \
-        result
+    if oArgs.command == 'edit' and oArgs.edit:
+        section,num,key,val = oArgs.edit.split(',',3)
     
+    diff =  index - len(bOUT)
+    if diff > 0:
+        LOG.warn(f"PROCESS_CHUNK {label} index={index} bOUT={len(bOUT)} delta={diff} length={length}")
+    elif bDEBUG:
+        LOG.trace(f"PROCESS_CHUNK {label} index={index} bOUT={len(bOUT)} delta={diff} length={length}")
+
     if data_type == MESSENGER_STATE_TYPE_NOSPAMKEYS:
         nospam = bin_to_hex(result[0:4])
         public_key = bin_to_hex(result[4:36])
@@ -443,17 +449,29 @@ def process_chunk(index, state):
         lOUT += [{label: lIN}]; aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_NAME:
-        name = str(state[index + 8:index + 8 + length], 'utf-8')
+        name = str(result, sENC)
         LOG.info(f"{label} Nick_name = " +name)
         aIN = {"Nick_name": name}
         lOUT += [{label: aIN}]; aOUT.update({label: aIN})
-
+        if oArgs.command == 'edit' and section == label:
+            ## NAME,0,Nick_name,str
+            if key == "Nick_name":
+                result = bytes(val, sENC)
+                length = len(result)
+                LOG.info(f"{label} {key} EDITED to {val}")
+                
     elif data_type == MESSENGER_STATE_TYPE_STATUSMESSAGE:
-        mess = str(state[index + 8:index + 8 + length], 'utf-8')
+        mess = str(result, sENC)
         LOG.info(f"{label} StatusMessage = " +mess)
         aIN = {"Status_message": mess}
         lOUT += [{label: aIN}]; aOUT.update({label: aIN})
-
+        if oArgs.command == 'edit' and section == label:
+            ## STATUSMESSAGE,0,Status_message,str
+            if key == "Status_message":
+                result = bytes(val, sENC)
+                length = len(result)
+                LOG.info(f"{label} {key} EDITED to {val}")
+            
     elif data_type == MESSENGER_STATE_TYPE_STATUS:
         # 1  uint8_t status (0 = online, 1 = away, 2 = busy)
         dStatus = {0: 'online', 1: 'away', 2: 'busy'}
@@ -462,6 +480,12 @@ def process_chunk(index, state):
         LOG.info(f"{label} = " +status)
         aIN = {f"Online_status": status}
         lOUT += [{"STATUS": aIN}]; aOUT.update({"STATUS": aIN})
+        if oArgs.command == 'edit' and section == label:
+            ## STATUS,0,Online_status,int
+            if key == "Online_status":
+                result = struct.pack(">b", int(val))
+                length = len(result)
+                LOG.info(f"{label} {key} EDITED to {val}")
 
     elif data_type == MESSENGER_STATE_TYPE_GROUPS:
         if length > 0:
@@ -485,7 +509,7 @@ def process_chunk(index, state):
         LOG.debug(f"process_chunk {label} bytes={length}")
         lIN = lProcessNodeInfo(state, index, length, result, "PATHnode")
         lOUT += [{label: lIN}]; aOUT.update({label: lIN})
-        
+
     elif data_type == MESSENGER_STATE_TYPE_CONFERENCES:
         lIN = []
         if length > 0:
@@ -495,22 +519,33 @@ def process_chunk(index, state):
         lOUT += [{label: []}]; aOUT.update({label: []})
 
     elif data_type != MESSENGER_STATE_TYPE_END:
-        LOG.warn("UNRECOGNIZED datatype={datatype}")
+        LOG.error("UNRECOGNIZED datatype={datatype}")
+        sys.exit(1)
         
     else:
-        diff = len(bSAVE) - len(bOUT)
-        if diff:
-            # if short repacking as we read - tox_profile is padded with nulls
-            LOG.debug(f"PROCESS_CHUNK bSAVE={len(bSAVE)} bOUT={len(bOUT)} delta={diff}")
-    
         LOG.info("END") # That's all folks...
-        return
-        
-    # failsafe
-    if index + 8 >= len(state): return
-    process_chunk(new_index, state)
+        # drop through
 
-def bAreWeConnected(): 
+    # We repack as we read: or edit as we parse; simply edit result and length.
+    # We'll add the results back to bOUT to see if we get what we started with.
+    # Then will will be able to selectively null sections or selectively edit.
+    assert length == len(result), length
+    bOUT += struct.pack("<I", length) + \
+        struct.pack("<H", data_type) + \
+        struct.pack("<H", check) + \
+        result
+
+    if data_type == MESSENGER_STATE_TYPE_END or \
+      index + 8 >= len(state):
+        diff = len(bSAVE) - len(bOUT)
+        if oArgs.command != 'edit' and diff > 0:
+            # if short repacking as we read - tox_profile is padded with nulls
+            LOG.warn(f"PROCESS_CHUNK bSAVE={len(bSAVE)} bOUT={len(bOUT)} delta={diff}")
+        return
+
+    process_chunk(new_index, state, oArgs)
+
+def bAreWeConnected():
     # FixMe: Linux
     sFile = f"/proc/{os.getpid()}/net/route"
     if not os.path.isfile(sFile): return None
@@ -616,7 +651,7 @@ def vSetupLogging(loglevel=logging.DEBUG):
     logging._defaultFormatter = logging.Formatter(datefmt='%m-%d %H:%M:%S')
     logging._defaultFormatter.default_time_format = '%m-%d %H:%M:%S'
     logging._defaultFormatter.default_msec_format = ''
-
+    
 def oMainArgparser(_=None):
     if not os.path.exists('/proc/sys/net/ipv6'):
         bIpV6 = 'False'
@@ -627,16 +662,18 @@ def oMainArgparser(_=None):
     parser = argparse.ArgumentParser(epilog=__doc__)
     # list(dSTATE_TYPE.values())
     # ['nospamkeys', 'dht', 'friends', 'name', 'statusmessage', 'status', 'groups', 'tcp_relay', 'path_node', 'conferences']
-    
+
     parser.add_argument('--output', type=str, default='',
                         help='Destination for info/decrypt - defaults to stderr')
     parser.add_argument('--command', type=str, default='info',
-                        choices=['info', 'decrypt', 'nodes', 'save'],
-                        # required=True,
+                        choices=['info', 'decrypt', 'nodes', 'edit'],
+                        required=True,
                         help='Action command - default: info')
+    parser.add_argument('--edit', type=str, default='',
+                        help='comma seperated SECTION,key,value - unfinished')
     parser.add_argument('--indent', type=int, default=2,
                         help='Indent for yaml/json/pprint')
-    choices=['info', 'repr', 'yaml','json', 'pprint']
+    choices=['info', 'save', 'repr', 'yaml','json', 'pprint']
     if bHAVE_NMAP: choices += ['nmap_tcp', 'nmap_udp', 'nmap_onion']
     parser.add_argument('--info', type=str, default='info',
                         choices=choices,
@@ -652,18 +689,38 @@ def oMainArgparser(_=None):
                         help='Action for nodes command (requires jq)')
     parser.add_argument('--download_nodes_url', type=str,
                         default='https://nodes.tox.chat/json')
+    parser.add_argument('--encoding', type=str, default=sENC)
     parser.add_argument('profile', type=str, nargs='?', default=None,
                         help='tox profile file - may be encrypted')
     return parser
 
+# grep '#''#' logging_tox_savefile.py|sed -e 's/.* //'
+sEDIT_HELP = """
+NAME,0,Nick_name,str
+STATUSMESSAGE,0,Status_message,str
+STATUS,0,Online_status,int
+"""
+
+global lOUT, bOUT, aOUT, sENC
+lOUT = []
+aOUT = {}
+bOUT = b''
+sENC = 'utf-8'
 if __name__ == '__main__':
     lArgv = sys.argv[1:]
     parser = oMainArgparser()
     oArgs = parser.parse_args(lArgv)
+    if oArgs.command in ['edit'] and oArgs.edit == 'help':
+        l = list(dSTATE_TYPE.values())
+        l.remove('END')
+        print('Available Sections: ' +repr(l))
+        print('Supported Quads: section,num,key,type ' +sEDIT_HELP)
+        sys.exit(0)
 
     sFile = oArgs.profile
     assert os.path.isfile(sFile), sFile
 
+    sENC = oArgs.encoding
     vSetupLogging()
 
     bSAVE = open(sFile, 'rb').read()
@@ -712,7 +769,7 @@ if __name__ == '__main__':
             else:
                 cmd = vBashFileNmapTcp()
                 iRet = os.system(f"bash {cmd} < '{sFile}'" +f" >'{oArgs.output}'")
-                
+
         elif oArgs.nodes == 'nmap_udp' and bHAVE_NMAP:
             assert bHAVE_JQ, "jq is required for this command"
             assert oArgs.output, "--output required for this command"
@@ -722,7 +779,7 @@ if __name__ == '__main__':
             else:
                 cmd = vBashFileNmapUdp()
                 iRet = os.system(f"bash {cmd} < '{sFile}'" +f" >'{oArgs.output}'")
-                
+
         elif oArgs.nodes == 'download' and download_url:
             if not bAreWeConnected():
                 LOG.error(f"{oArgs.nodes} not connected")
@@ -739,7 +796,7 @@ if __name__ == '__main__':
                         oStream.write(bSAVE)
                     else:
                         oStream = sys.stdout
-                        oStream.write(str(bSAVE, 'utf-8'))
+                        oStream.write(str(bSAVE, sENC))
                     iRet = -1
                     LOG.info(f"downloaded list of nodes saved to {oStream}")
 
@@ -747,54 +804,69 @@ if __name__ == '__main__':
             LOG.warn(f"{oArgs.nodes} iRet={iRet} to {oArgs.output}")
         elif iRet == 0:
             LOG.info(f"{oArgs.nodes} iRet={iRet} to {oArgs.output}")
-            
-    elif oArgs.command in ['save', 'info']:
-        if oArgs.command == 'save':
-            assert oArgs.output, "--output required for this command"
 
-        mark = b'\x00\x00\x00\x00\x1f\x1b\xed\x15'
-        bOUT = mark
+    elif oArgs.command in ['info', 'edit']:
+        if oArgs.command in ['edit']:
+            assert oArgs.output, "--output required for this command"
+            assert oArgs.edit != '', "--edit required for this command"
+        elif oArgs.command == 'info':
+            # assert oArgs.info != '', "--info required for this command"
+            if oArgs.info in ['save', 'yaml', 'json', 'repr', 'pprint']:
+                assert oArgs.output, "--output required for this command"
+
         # toxEsave
-        assert bSAVE[:8] == bOUT, "Not a Tox profile"
+        assert bSAVE[:8] == bMARK, "Not a Tox profile"
+        bOUT = bMARK
 
         iErrs = 0
-        lOUT = []; aOUT = {}
-        process_chunk(len(bOUT), bSAVE)
-        if aOUT:
-            if oArgs.output:
-                oStream = open(oArgs.output, 'wb')
-            else:
-                oStream = sys.stdout
+        process_chunk(len(bOUT), bSAVE, oArgs)
+        if not bOUT:
+            LOG.error(f"{oArgs.command} NO bOUT results")
+        else:
+            oStream = None
+            LOG.debug(f"command={oArgs.command} len bOUT={len(bOUT)} results")
 
-            if oArgs.command == 'save':
-                oStream.write(bOUT)
+            if oArgs.command in ['edit'] or oArgs.info in ['save']:
+                LOG.debug(f"{oArgs.command} saving to {oArgs.output}")
+                oStream = open(oArgs.output, 'wb', encoding=None)
+                if oStream.write(bOUT) > 0: iRet = 0
+                LOG.info(f"{oArgs.info}ed iRet={iRet} to {oArgs.output}")
             elif oArgs.info == 'info':
                 pass
             elif oArgs.info == 'yaml' and yaml:
+                LOG.debug(f"{oArgs.command} saving to {oArgs.output}")
+                oStream = open(oArgs.output, 'wt', encoding=sENC)
                 yaml.dump(aOUT, stream=oStream, indent=oArgs.indent)
-                oStream.write('\n')
+                if oStream.write('\n') > 0: iRet = 0
+                LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
             elif oArgs.info == 'json' and json:
+                LOG.debug(f"{oArgs.command} saving to {oArgs.output}")
+                oStream = open(oArgs.output, 'wb', encoding=None)
                 json.dump(aOUT, oStream, indent=oArgs.indent)
-                oStream.write('\n')
+                if oStream.write('\n') > 0: iRet = 0
+                LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
             elif oArgs.info == 'repr':
-                oStream.write(repr(aOUT))
-                oStream.write('\n')
+                LOG.debug(f"{oArgs.command} saving to {oArgs.output}")
+                oStream = open(oArgs.output, 'wt', encoding=sENC)
+                if oStream.write(repr(bOUT)) > 0: iRet = 0
+                if oStream.write('\n') > 0: iRet = 0
+                LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
             elif oArgs.info == 'pprint':
+                LOG.debug(f"{oArgs.command} saving to {oArgs.output}")
+                oStream = open(oArgs.output, 'wt', encoding=sENC)
                 pprint(aOUT, stream=oStream, indent=oArgs.indent, width=80)
+                iRet = 0
+                LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
             elif oArgs.info == 'nmap_tcp' and bHAVE_NMAP:
                 assert oArgs.output, "--output required for this command"
-                oStream.close()
                 vOsSystemNmapTcp(aOUT["TCP_RELAY"], oArgs)
             elif oArgs.info == 'nmap_udp' and bHAVE_NMAP:
                 assert oArgs.output, "--output required for this command"
-                oStream.close()
                 vOsSystemNmapUdp(aOUT["DHT"], oArgs)
             elif oArgs.info == 'nmap_onion' and bHAVE_NMAP:
                 assert oArgs.output, "--output required for this command"
-                oStream.close()
                 vOsSystemNmapUdp(aOUT["PATH_NODE"], oArgs)
 
-                                 
     if oStream and oStream != sys.stdout and oStream != sys.stderr:
         oStream.close()
 

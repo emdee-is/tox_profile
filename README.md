@@ -11,8 +11,8 @@ or YAML, and then extended to accept JSON or YAML to write a profile.
 ## Usage
 
 Reads a tox profile and prints out information on what's in there to stderr.
-Call it with one argument, the filename of the profile for the decrypt or info
-commands, or the filename of the nodes file for the nodes command.
+Call it with one argument, the filename of the profile for the decrypt, edit
+or info commands, or the filename of the nodes file for the nodes command.
 
 3 commands are supported:
 1. ```--command decrypt``` decrypts the profile and writes to the result
@@ -52,12 +52,23 @@ Optional arguments:
 
 ```info``` will output the profile on stdout, or to a file with ```--output```
 
-Choose one of ```{info,repr,yaml,json,pprint}```
+Choose one of ```{info,repr,yaml,json,pprint,save}```
 for the format for info command.
 
 Choose one of ```{nmap_udp,nmap_tcp}```
 to run tests using ```nmap``` for the ```DHT``` and ```TCP_RELAY```
 sections of the profile. Reguires ```nmap``` and uses ```sudo```.
+
+#### Saving a copy
+
+The code now can generate a saved copy of the profile as it parses the profile.
+Use the command ```--command info --info save``` with ```--output```
+and a filename, to process the file with info to stderr, and it will
+save an copy of the file to the  ```--output``` (unencrypted).
+
+It may be shorter than the original profile by up to 512 bytes, as the
+original toxic profile is padded at the end with nulls (or maybe in the
+decryption). 
 
 ### --command nodes
 
@@ -73,6 +84,22 @@ nodes. Reguires ```nmap``` and uses ```sudo```.
 ### --command decrypt
 
 Decrypt a profile.
+
+### --command edit
+
+The code now can generate an edited copy of the profile.
+Use the command ```--command edit --edit section,key,val``` with
+```--output``` and a filename, to process the file with info to stderr,
+and it will save an copy of the edited file to the
+```--output``` file (unencrypted). There's not much editing yet; give
+```--command edit --edit help``` to get a list of what Available Sections,
+and Supported Quads (section,num,key,type) that can be edited.
+Currently it is:
+```
+NAME,0,Nick_name,str
+STATUSMESSAGE,0,Status_message,str
+STATUS,0,Online_status,int
+```
 
 ## Requirements
 
@@ -93,22 +120,20 @@ If you want to write in YAML, you need Python yaml:
 If you have coloredlogs installed it will make use of it: 
 <https://pypi.org/project/coloredlogs/>
 
+For the ```select``` and ```nmap``` commands, the ```jq``` utility is
+required. It's available in most distros, or <https://stedolan.github.io/jq/>
+
+For the ```nmap``` commands, the ```nmap``` utility is
+required. It's available in most distros, or <https://nmap.org/>
+
 ## Future Directions
+
+This has not been tested on Windwoes, but is should be simple to fix.
 
 Because it's written in Python it is easy to extend to, for example,
 rekeying a profile when copying a profile to a new device:
 <https://git.plastiras.org/emdee/tox_profile/wiki/MultiDevice-Announcements-POC>
 
-### Editing - save
-
-The code now can generate a saved copy of the profile as it parses the profile.
-Use the command ```--command save``` with ```--output``` and a filename,
-to process the file with info to stderr, and it will save an copy of the file
-to the  ```--output``` (unencrypted).
-
-It may be shorter than the original profile by up to 512 bytes, as the
-original toxic profile is padded at the end with nulls.  So this code
-can be extended to edit the profile before saving it.
 
 ## Specification
 
