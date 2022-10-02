@@ -22,8 +22,11 @@ commands, or the filename of the nodes file for the nodes command.
   --info default='info',
          choices=['info', 'repr', 'yaml','json', 'pprint']
          with --info=info prints info about the profile to stderr
-  --indent default=2
+         nmap_udp        - test DHT nodes with nmap
+         nmap_tcp        - test TCP_RELAY nodes with nmap
+         nmap_onion      - test PATH_NODE nodes with nmap
          indents the output as: 'yaml','json', 'pprint' 
+  --indent for pprint/yaml/json default=2
 
   --output Destination for the command - required
   --nodes 
@@ -94,7 +97,8 @@ except:
         download_url = None
     
 LOG = logging.getLogger('TSF')
-bUSE_NMAP = True
+
+bHAVE_NMAP = shutil.which('nmap')
 sDIR = os.environ.get('TMPDIR', '/tmp')
 # nodes
 sTOX_VERSION = "1000002018"
@@ -301,7 +305,7 @@ def lProcessGroups(state, index, length, result):
         LOG.warn(f"process_chunk Groups #{i} error={e}")
     return lIN
 
-def lProcessTcpRelay(state, index, length, result):
+def lProcessNodeInfo(state, index, length, result, label="DHTnode"):
     """Node Info (packed node format)
 
 The Node Info data structure contains a Transport Protocol, a Socket
@@ -339,7 +343,7 @@ The Node Info data structure contains a Transport Protocol, a Socket
         total = 1 + alen + 2 + 32
         port = int(struct.unpack_from(">H", result, delta+1+alen)[0])
         pk = bin_to_hex(result[delta+1+alen+2:delta+1+alen+2+32], 32)
-        LOG.info(f"DHTnode #{relay} bytes={length} status={status} ip={ipv} af={af} ip={ipaddr} port={port} pk={pk}")
+        LOG.info(f"{label} #{relay} bytes={length} status={status} ip={ipv} af={af} ip={ipaddr} port={port} pk={pk}")
         lIN += [{"Bytes": length,
                  "Status": status,
                  "Ip": ipv,
@@ -347,15 +351,12 @@ The Node Info data structure contains a Transport Protocol, a Socket
                  "Ip": ipaddr,
                  "Port": port,
                  "Pk": pk}]
-        if bUSE_NMAP:
-            cmd = f"nmap -Pn -n -sT -p T:{port} {ipaddr}"
-
         delta += total
         length -= total
         relay += 1
     return lIN
 
-def lProcessDHTnodes(state, index, length, result):
+def lProcessDHTnodes(state, index, length, result, label="DHTnode"):
     relay = 0
     status = struct.unpack_from("<L", result, 0)[0]
     # 4  uint32_t (0x159000D)
@@ -387,13 +388,12 @@ def lProcessDHTnodes(state, index, length, result):
             port = int(struct.unpack_from(">H", result, offset+8+1+alen)[0])
             pk = bin_to_hex(result[offset+8+1+alen+2:offset+8+1+alen+2+32], 32)
 
-            LOG.info(f"DHTnode #{relay} status={status} ipaddr={ipaddr} port={port} {pk}")
+            LOG.info(f"{label} #{relay} status={status} ipaddr={ipaddr} port={port} {pk}")
             lIN += [{"status": status,
+                     "af": af,
                      "ipaddr": ipaddr,
                      "port": port,
                      "pk": pk}]
-            if bUSE_NMAP:
-                cmd = f"nmap -Pn -n -sU -p U:{port} {ipaddr}"
             offset += subtotal
         delta += total
         length -= total
@@ -411,9 +411,10 @@ def process_chunk(index, state):
     
     # plan on repacking as we read - this is just a starting point
     # We'll add the results back to bOUT to see if we get what we started with.
-    # Then will will be able to selectively null sections.
+    # Then will will be able to selectively null sections or selectively edit.
     bOUT += struct.pack("<H", length) + struct.pack("<H", data_type) + result
     
+    label = dSTATE_TYPE[data_type]
     if data_type == MESSENGER_STATE_TYPE_NOSPAMKEYS:
         nospam = bin_to_hex(result[0:4])
         public_key = bin_to_hex(result[4:36])
@@ -462,13 +463,15 @@ def process_chunk(index, state):
         if lIN: lOUT += [{"GROUPS": lIN}]; aOUT.update({"GROUPS": lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_TCP_RELAY:
-        lIN = lProcessTcpRelay(state, index, length, result)
+        lIN = lProcessNodeInfo(state, index, length, result, "TCPnode")
         if lIN: lOUT += [{"TCP_RELAY": lIN}]; aOUT.update({"TCP_RELAY": lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_PATH_NODE:
+        #define NUM_SAVED_PATH_NODES 8
+        assert length % 8 == 0, length
         LOG.debug(f"TODO process_chunk {dSTATE_TYPE[data_type]} bytes={length}")
-        lIN = []
-        if lIN: lOUT += [{"PATH_NODE": lIN}]; aOUT.update({"PATH_NODE": lIN})
+        lIN = lProcessNodeInfo(state, index, length, result, "PATHnode")
+        if lIN: lOUT += [{label: lIN}]; aOUT.update({label: lIN})
         
     elif data_type == MESSENGER_STATE_TYPE_CONFERENCES:
         if length > 0:
@@ -529,7 +532,6 @@ jq '.|with_entries(select(.key|match("nodes"))).nodes[]|select(.status_tcp)|sele
     else
 	port=`echo $line|sed -e 's/,//'`
 	ports+=($port)
-	#	echo '>>' $ip "${ports[*]}"
     fi
 done"""
 
@@ -615,12 +617,15 @@ def oMainArgparser(_=None):
                         help='Action command - default: info')
     parser.add_argument('--indent', type=int, default=2,
                         help='Indent for yaml/json/pprint')
+    choices=['info', 'repr', 'yaml','json', 'pprint']
+    if bHAVE_NMAP: choices += ['nmap_tcp', 'nmap_udp', 'nmap_onion']
     parser.add_argument('--info', type=str, default='info',
-                        choices=['info', 'repr', 'yaml','json', 'pprint', 'nmap_tcp', 'nmap_udp'],
+                        choices=choices,
                         help='Format for info command')
     choices = []
     if bHAVE_JQ:
-        choices += ['select_tcp', 'select_udp', 'select_version', 'nmap_tcp', 'nmap_udp']
+        choices += ['select_tcp', 'select_udp', 'select_version']
+    if bHAVE_NMAP: choices += ['nmap_tcp', 'nmap_udp']
     if download_url:
         choices += ['download']
     parser.add_argument('--nodes', type=str, default='',
@@ -680,7 +685,7 @@ if __name__ == '__main__':
             cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.version|match(\"{sTOX_VERSION}\"))' "
             iRet = os.system(cmd +f" > {oArgs.output}")
 
-        elif oArgs.nodes == 'nmap_tcp':
+        elif oArgs.nodes == 'nmap_tcp' and bHAVE_NMAP:
             assert bHAVE_JQ, "jq is required for this command"
             assert oArgs.output, "--output required for this command"
             if not bAreWeConnected():
@@ -690,7 +695,7 @@ if __name__ == '__main__':
                 cmd = vBashFileNmapTcp()
                 iRet = os.system(f"bash {cmd} < '{sFile}'" +f" >'{oArgs.output}'")
                 
-        elif oArgs.nodes == 'nmap_udp':
+        elif oArgs.nodes == 'nmap_udp' and bHAVE_NMAP:
             assert bHAVE_JQ, "jq is required for this command"
             assert oArgs.output, "--output required for this command"
             if not bAreWeConnected():
@@ -751,14 +756,18 @@ if __name__ == '__main__':
                 pprint(aOUT, stream=oStream, indent=oArgs.indent, width=80)
             elif oArgs.info == 'info':
                 pass
-            elif oArgs.info == 'nmap_tcp':
+            elif oArgs.info == 'nmap_tcp' and bHAVE_NMAP:
                 assert oArgs.output, "--output required for this command"
                 oStream.close()
                 vOsSystemNmapTcp(aOUT["TCP_RELAY"], oArgs)
-            elif oArgs.info == 'nmap_udp':
+            elif oArgs.info == 'nmap_udp' and bHAVE_NMAP:
                 assert oArgs.output, "--output required for this command"
                 oStream.close()
                 vOsSystemNmapUdp(aOUT["DHT"], oArgs)
+            elif oArgs.info == 'nmap_onion' and bHAVE_NMAP:
+                assert oArgs.output, "--output required for this command"
+                oStream.close()
+                vOsSystemNmapUdp(aOUT["PATH_NODE"], oArgs)
 
         # were short repacking as we read - 446 bytes missing
         LOG.debug(f"len bSAVE={len(bSAVE)} bOUT={len(bOUT)} delta={len(bSAVE) - len(bOUT)} iTOTAL={iTOTAL}")
