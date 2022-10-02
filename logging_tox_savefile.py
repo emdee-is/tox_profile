@@ -76,6 +76,7 @@ except ImportError as e:
 try:
     # https://git.plastiras.org/emdee/toxygen_wrapper
     from wrapper.toxencryptsave import ToxEncryptSave
+    from wrapper_tests.support_http import download_url
 except ImportError as e:
     print(f"Import Error {e}")
     print("Download toxygen_wrapper to deal with encrypted tox files, from:")
@@ -85,16 +86,7 @@ except ImportError as e:
     print("and libtoxencryptsave.so into wrapper/../libs/")
     print("Link all 3 from libtoxcore.so if you have only libtoxcore.so")
     ToxEncryptSave = None
-try:
-    from wrapper_tests.support_http import download_url
-except:
-    try:
-        from support_http import download_url
-    except ImportError as e:
-        print(f"Import Error {e}")
-        print("Download toxygen_wrapper to deal with encrypted tox files, from:")
-        print("https://git.plastiras.org/emdee/toxygen_wrapper")
-        download_url = None
+    download_url = None
     
 LOG = logging.getLogger('TSF')
 
@@ -211,7 +203,10 @@ Length  Contents
                  "Pk": pk}]
     return lIN
 
-def lProcessGroups(state, index, length, result):
+def lProcessGroups(state, index, length, result, label="GROUPS"):
+    """
+    No GROUPS description in spec.html
+    """
     lIN = []
     i = 0
     if not msgpack:
@@ -219,10 +214,11 @@ def lProcessGroups(state, index, length, result):
         return []
     try:
         groups = msgpack.loads(result, raw=True)
-        LOG.debug(f"process_chunk {label} len={len(groups)}")
+        LOG.info(f"{label} {len(groups)} groups")
         for group in groups:
             assert len(group) == 7, group
             i += 1
+            
             state_values, \
             state_bin, \
             topic_info, \
@@ -262,7 +258,7 @@ def lProcessGroups(state, index, length, result):
 
             assert len(mod_list) == 2, mod_list
             num_moderators = mod_list[0]
-            LOG.debug(f"lProcessGroups #{i} num moderators={mod_list[0]}")
+            LOG.info(f"lProcessGroups #{i} num moderators={mod_list[0]}")
             #define CRYPTO_SIGN_PUBLIC_KEY_SIZE    32
             mods = mod_list[1]
             assert len(mods) % 32 == 0, len(mods)
@@ -272,7 +268,7 @@ def lProcessGroups(state, index, length, result):
                 mod = mods[j*32:j*32 + 32]
                 LOG.info(f"lProcessGroups group#{i} mod#{j} sig_pk={bin_to_hex(mod)}")
                 lMODS += [{"Sig_pk": bin_to_hex(mod)}]
-            if lMODS: lIN += [{"Moderators": lMODS}]
+            lIN += [{"Moderators": lMODS}]
 
             assert len(keys) == 4, keys
             LOG.debug(f"lProcessGroups #{i} {repr(list(map(len, keys)))}")
@@ -403,20 +399,27 @@ def lProcessDHTnodes(state, index, length, result, label="DHTnode"):
     return lIN
 
 def process_chunk(index, state):
-    global lOUT, bOUT, iTOTAL, aOUT
+    global lOUT, bOUT, aOUT
 
-    length = struct.unpack_from("<H", state, index)[0]
+    length = struct.unpack_from("<I", state, index)[0]
     data_type = struct.unpack_from("<H", state, index + 4)[0]
+    check = struct.unpack_from("<H", state, index + 6)[0]
+    assert check == 0x01CE, check
     new_index = index + length + 8
     result = state[index + 8:index + 8 + length]
-    iTOTAL += length + 8
     
+    label = dSTATE_TYPE[data_type]
+    diff =  index - len(bOUT)
+    if diff:
+        LOG.debug(f"PROCESS_CHUNK {label} index={index} bOUT={len(bOUT)} delta={diff} length={length}")
     # plan on repacking as we read - this is just a starting point
     # We'll add the results back to bOUT to see if we get what we started with.
     # Then will will be able to selectively null sections or selectively edit.
-    bOUT += struct.pack("<H", length) + struct.pack("<H", data_type) + result
+    bOUT += struct.pack("<I", length) + \
+        struct.pack("<H", data_type) + \
+        struct.pack("<H", check) + \
+        result
     
-    label = dSTATE_TYPE[data_type]
     if data_type == MESSENGER_STATE_TYPE_NOSPAMKEYS:
         nospam = bin_to_hex(result[0:4])
         public_key = bin_to_hex(result[4:36])
@@ -435,21 +438,21 @@ def process_chunk(index, state):
         lOUT += [{label: lIN}]; aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_FRIENDS:
-        LOG.debug(f"process_chunk {label} {length // 2216} FRIENDS {length} {length % 2216}")
+        LOG.info(f"{label} {length // 2216} FRIENDS {length % 2216}")
         lIN = lProcessFriends(state, index, length, result)
-        lOUT += [{"FRIENDS": lIN}]; aOUT.update({"FRIENDS": lIN})
+        lOUT += [{label: lIN}]; aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_NAME:
         name = str(state[index + 8:index + 8 + length], 'utf-8')
-        LOG.info("Nick_name = " +name)
-        aIN = {"NAME": name}
+        LOG.info(f"{label} Nick_name = " +name)
+        aIN = {"Nick_name": name}
         lOUT += [{label: aIN}]; aOUT.update({label: aIN})
 
     elif data_type == MESSENGER_STATE_TYPE_STATUSMESSAGE:
         mess = str(state[index + 8:index + 8 + length], 'utf-8')
-        LOG.info(f"StatusMessage = " +mess)
+        LOG.info(f"{label} StatusMessage = " +mess)
         aIN = {"Status_message": mess}
-        lOUT += [{"STATUSMESSAGE": aIN}]; aOUT.update({"STATUSMESSAGE": aIN})
+        lOUT += [{label: aIN}]; aOUT.update({label: aIN})
 
     elif data_type == MESSENGER_STATE_TYPE_STATUS:
         # 1  uint8_t status (0 = online, 1 = away, 2 = busy)
@@ -461,11 +464,19 @@ def process_chunk(index, state):
         lOUT += [{"STATUS": aIN}]; aOUT.update({"STATUS": aIN})
 
     elif data_type == MESSENGER_STATE_TYPE_GROUPS:
-        lIN = lProcessGroups(state, index, length, result)
-        lOUT += [{"GROUPS": lIN}]; aOUT.update({"GROUPS": lIN})
+        if length > 0:
+            lIN = lProcessGroups(state, index, length, result, label)
+        else:
+            lIN = []
+            LOG.info(f"NO {label}")
+        lOUT += [{label: lIN}]; aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_TCP_RELAY:
-        lIN = lProcessNodeInfo(state, index, length, result, "TCPnode")
+        if length > 0:
+            lIN = lProcessNodeInfo(state, index, length, result, "TCPnode")
+        else:
+            lIN = []
+            LOG.info(f"NO {label}")
         lOUT += [{label: lIN}]; aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_PATH_NODE:
@@ -487,6 +498,11 @@ def process_chunk(index, state):
         LOG.warn("UNRECOGNIZED datatype={datatype}")
         
     else:
+        diff = len(bSAVE) - len(bOUT)
+        if diff:
+            # if short repacking as we read - tox_profile is padded with nulls
+            LOG.debug(f"PROCESS_CHUNK bSAVE={len(bSAVE)} bOUT={len(bOUT)} delta={diff}")
+    
         LOG.info("END") # That's all folks...
         return
         
@@ -615,7 +631,7 @@ def oMainArgparser(_=None):
     parser.add_argument('--output', type=str, default='',
                         help='Destination for info/decrypt - defaults to stderr')
     parser.add_argument('--command', type=str, default='info',
-                        choices=['info', 'decrypt', 'nodes'],
+                        choices=['info', 'decrypt', 'nodes', 'save'],
                         # required=True,
                         help='Action command - default: info')
     parser.add_argument('--indent', type=int, default=2,
@@ -641,7 +657,6 @@ def oMainArgparser(_=None):
     return parser
 
 if __name__ == '__main__':
-    iTOTAL = 0
     lArgv = sys.argv[1:]
     parser = oMainArgparser()
     oArgs = parser.parse_args(lArgv)
@@ -733,20 +748,29 @@ if __name__ == '__main__':
         elif iRet == 0:
             LOG.info(f"{oArgs.nodes} iRet={iRet} to {oArgs.output}")
             
-    elif oArgs.command == 'info':
-        bOUT = b'\x00\x00\x00\x00\x1f\x1b\xed\x15'
+    elif oArgs.command in ['save', 'info']:
+        if oArgs.command == 'save':
+            assert oArgs.output, "--output required for this command"
+
+        mark = b'\x00\x00\x00\x00\x1f\x1b\xed\x15'
+        bOUT = mark
         # toxEsave
         assert bSAVE[:8] == bOUT, "Not a Tox profile"
 
         iErrs = 0
         lOUT = []; aOUT = {}
         process_chunk(len(bOUT), bSAVE)
-        if lOUT:
+        if aOUT:
             if oArgs.output:
                 oStream = open(oArgs.output, 'wb')
             else:
                 oStream = sys.stdout
-            if oArgs.info == 'yaml' and yaml:
+
+            if oArgs.command == 'save':
+                oStream.write(bOUT)
+            elif oArgs.info == 'info':
+                pass
+            elif oArgs.info == 'yaml' and yaml:
                 yaml.dump(aOUT, stream=oStream, indent=oArgs.indent)
                 oStream.write('\n')
             elif oArgs.info == 'json' and json:
@@ -757,8 +781,6 @@ if __name__ == '__main__':
                 oStream.write('\n')
             elif oArgs.info == 'pprint':
                 pprint(aOUT, stream=oStream, indent=oArgs.indent, width=80)
-            elif oArgs.info == 'info':
-                pass
             elif oArgs.info == 'nmap_tcp' and bHAVE_NMAP:
                 assert oArgs.output, "--output required for this command"
                 oStream.close()
@@ -772,10 +794,7 @@ if __name__ == '__main__':
                 oStream.close()
                 vOsSystemNmapUdp(aOUT["PATH_NODE"], oArgs)
 
-        # were short repacking as we read - 446 bytes missing
-        LOG.debug(f"len bSAVE={len(bSAVE)} bOUT={len(bOUT)} delta={len(bSAVE) - len(bOUT)} iTOTAL={iTOTAL}")
-    
-
+                                 
     if oStream and oStream != sys.stdout and oStream != sys.stderr:
         oStream.close()
 

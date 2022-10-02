@@ -99,5 +99,18 @@ Because it's written in Python it is easy to extend to, for example,
 rekeying a profile when copying a profile to a new device:
 <https://git.plastiras.org/emdee/tox_profile/wiki/MultiDevice-Announcements-POC>
 
+### Editing - save
+
+The code now can generate a saved copy of the profile as it parses the profile.
+Use the command ```--command save``` with ```--output``` and a filename,
+to process the file with info to stderr, and it will save an copy of the file
+to the  ```--output``` (unencrypted).
+
+It may be shorter than the original profile by up to 512 bytes, as the
+original toxic profile is padded at the end with nulls.  So this code
+can be extended to edit the profile before saving it.
+
+## Specification
+
 There is a copy of the Tox [spec](https://toktok.ltd/spec.html)
 in the repo - it is missing any description of the groups section.
