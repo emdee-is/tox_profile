@@ -3,7 +3,7 @@
 Read and manipulate tox profile files. It started as a simple script from
 <https://stackoverflow.com/questions/30901873/what-format-are-tox-files-stored-in>
 
-For the moment logging_tox_savefile.py just reads a Tox profile and
+For the moment tox_savefile.py just reads a Tox profile and
 prints to stdout various things that it finds.  Then it writes what it
 found in YAML to stderr.  Later it can be extended to print out JSON
 or YAML, and then extended to accept JSON or YAML to write a profile.
@@ -22,7 +22,7 @@ to stdout
   a profile
 
 ```
-usage: logging_tox_savefile.py [-h] [--output OUTPUT]
+usage: tox_savefile.py [-h] [--output OUTPUT]
                                [--command {info,decrypt,nodes}]
                                [--indent INDENT]
                                [--info {info,repr,yaml,json,pprint,nmap_udp,nmap_tcp}]

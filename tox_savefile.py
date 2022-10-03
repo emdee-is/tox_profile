@@ -421,7 +421,7 @@ def process_chunk(index, state, oArgs=None):
         section,num,key,val = oArgs.edit.split(',',3)
     
     diff =  index - len(bOUT)
-    if diff > 0:
+    if bDEBUG and diff > 0:
         LOG.warn(f"PROCESS_CHUNK {label} index={index} bOUT={len(bOUT)} delta={diff} length={length}")
     elif bDEBUG:
         LOG.trace(f"PROCESS_CHUNK {label} index={index} bOUT={len(bOUT)} delta={diff} length={length}")
@@ -841,7 +841,7 @@ if __name__ == '__main__':
                 LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
             elif oArgs.info == 'json' and json:
                 LOG.debug(f"{oArgs.command} saving to {oArgs.output}")
-                oStream = open(oArgs.output, 'wb', encoding=None)
+                oStream = open(oArgs.output, 'wt', encoding=sENC)
                 json.dump(aOUT, oStream, indent=oArgs.indent)
                 if oStream.write('\n') > 0: iRet = 0
                 LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
