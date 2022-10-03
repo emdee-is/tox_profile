@@ -46,6 +46,7 @@ commands, or the filename of the nodes file for the nodes command.
 
 import sys
 import os
+import time
 import struct
 from socket import inet_ntop, AF_INET6, AF_INET
 import logging
@@ -76,7 +77,7 @@ except ImportError as e:
 try:
     # https://git.plastiras.org/emdee/toxygen_wrapper
     from wrapper.toxencryptsave import ToxEncryptSave
-    from wrapper_tests.support_http import download_url
+    from wrapper_tests.support_http import download_url, bAreWeConnected
 except ImportError as e:
     print(f"Import Error {e}")
     print("Download toxygen_wrapper to deal with encrypted tox files, from:")
@@ -95,13 +96,13 @@ sDIR = os.environ.get('TMPDIR', '/tmp')
 sTOX_VERSION = "1000002018"
 bHAVE_NMAP = shutil.which('nmap')
 bHAVE_JQ = shutil.which('jq')
+bHAVE_BASH = shutil.which('bash')
 bMARK = b'\x00\x00\x00\x00\x1f\x1b\xed\x15'
 bDEBUG = 'DEBUG' in os.environ and os.environ['DEBUG'] != 0
 def trace(s): LOG.log(LOG.level, '+ ' +s)
 LOG.trace = trace
 
-global lOUT, bOUT, aOUT, sENC
-lOUT = []
+global bOUT, aOUT, sENC
 aOUT = {}
 bOUT = b''
 sENC = 'utf-8'
@@ -417,7 +418,7 @@ def lProcessDHTnodes(state, index, length, result, label="DHTnode"):
     return lIN
 
 def process_chunk(index, state, oArgs=None):
-    global lOUT, bOUT, aOUT
+    global bOUT, aOUT
     global sENC
 
     length = struct.unpack_from("<I", state, index)[0]
@@ -447,23 +448,23 @@ def process_chunk(index, state, oArgs=None):
         aIN = {"Nospam": f"{nospam}",
                "Public_key": f"{public_key}",
                "Private_key": f"{private_key}"}
-        lOUT += [{label: aIN}]; aOUT.update({label: aIN})
+        aOUT.update({label: aIN})
 
     elif data_type == MESSENGER_STATE_TYPE_DHT:
         LOG.debug(f"process_chunk {label} length={length}")
         lIN = lProcessDHTnodes(state, index, length, result)
-        lOUT += [{label: lIN}]; aOUT.update({label: lIN})
+        aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_FRIENDS:
         LOG.info(f"{label} {length // 2216} FRIENDS {length % 2216}")
         lIN = lProcessFriends(state, index, length, result)
-        lOUT += [{label: lIN}]; aOUT.update({label: lIN})
+        aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_NAME:
         name = str(result, sENC)
         LOG.info(f"{label} Nick_name = " +name)
         aIN = {"Nick_name": name}
-        lOUT += [{label: aIN}]; aOUT.update({label: aIN})
+        aOUT.update({label: aIN})
         if oArgs.command == 'edit' and section == label:
             ## NAME,.,Nick_name,str
             if key == "Nick_name":
@@ -475,7 +476,7 @@ def process_chunk(index, state, oArgs=None):
         mess = str(result, sENC)
         LOG.info(f"{label} StatusMessage = " +mess)
         aIN = {"Status_message": mess}
-        lOUT += [{label: aIN}]; aOUT.update({label: aIN})
+        aOUT.update({label: aIN})
         if oArgs.command == 'edit' and section == label:
             ## STATUSMESSAGE,.,Status_message,str
             if key == "Status_message":
@@ -490,7 +491,7 @@ def process_chunk(index, state, oArgs=None):
         status = dStatus[status]
         LOG.info(f"{label} = " +status)
         aIN = {f"Online_status": status}
-        lOUT += [{"STATUS": aIN}]; aOUT.update({"STATUS": aIN})
+        aOUT.update({label: aIN})
         if oArgs.command == 'edit' and section == label:
             ## STATUS,.,Online_status,int
             if key == "Online_status":
@@ -504,7 +505,7 @@ def process_chunk(index, state, oArgs=None):
         else:
             lIN = []
             LOG.info(f"NO {label}")
-        lOUT += [{label: lIN}]; aOUT.update({label: lIN})
+        aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_TCP_RELAY:
         if length > 0:
@@ -512,14 +513,17 @@ def process_chunk(index, state, oArgs=None):
         else:
             lIN = []
             LOG.info(f"NO {label}")
-        lOUT += [{label: lIN}]; aOUT.update({label: lIN})
+        aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_PATH_NODE:
         #define NUM_SAVED_PATH_NODES 8
-        assert length % 8 == 0, length
-        LOG.debug(f"process_chunk {label} bytes={length}")
+        if not length % 8 == 0:
+            # this should be an assert?
+            LOG.warn(f"process_chunk {label} mod={length % 8}")
+        else:
+            LOG.debug(f"process_chunk {label} bytes={length}")
         lIN = lProcessNodeInfo(state, index, length, result, "PATHnode")
-        lOUT += [{label: lIN}]; aOUT.update({label: lIN})
+        aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_CONFERENCES:
         lIN = []
@@ -527,7 +531,7 @@ def process_chunk(index, state, oArgs=None):
             LOG.debug(f"TODO process_chunk {label} bytes={length}")
         else:
             LOG.info(f"NO {label}")
-        lOUT += [{label: []}]; aOUT.update({label: []})
+        aOUT.update({label: []})
 
     elif data_type != MESSENGER_STATE_TYPE_END:
         LOG.error("UNRECOGNIZED datatype={datatype}")
@@ -546,8 +550,7 @@ def process_chunk(index, state, oArgs=None):
         struct.pack("<H", check) + \
         result
 
-    if data_type == MESSENGER_STATE_TYPE_END or \
-      index + 8 >= len(state):
+    if data_type == MESSENGER_STATE_TYPE_END or index + 8 >= len(state):
         diff = len(bSAVE) - len(bOUT)
         if oArgs.command != 'edit' and diff > 0:
             # if short repacking as we read - tox_profile is padded with nulls
@@ -555,17 +558,6 @@ def process_chunk(index, state, oArgs=None):
         return
 
     process_chunk(new_index, state, oArgs)
-
-def bAreWeConnected():
-    # FixMe: Linux
-    sFile = f"/proc/{os.getpid()}/net/route"
-    if not os.path.isfile(sFile): return None
-    i = 0
-    for elt in open(sFile, "r").readlines():
-        if elt.startswith('Iface'): continue
-        if elt.startswith('lo'): continue
-        i += 1
-    return i > 0
 
 sNMAP_TCP = """#!/bin/bash
 ip=""
@@ -601,6 +593,9 @@ jq '.|with_entries(select(.key|match("nodes"))).nodes[]|select(.status_tcp)|sele
 done"""
 
 def vBashFileNmapTcp():
+    assert bHAVE_JQ, "jq is required for this command"
+    assert bHAVE_NMAP, "nmap is required for this command"
+    assert bHAVE_BASH, "bash is required for this command"
     f = "NmapTcp.bash"
     sFile = os.path.join(sDIR, f)
     if not os.path.exists(sFile):
@@ -610,6 +605,9 @@ def vBashFileNmapTcp():
     return sFile
 
 def vBashFileNmapUdp():
+    assert bHAVE_JQ, "jq is required for this command"
+    assert bHAVE_NMAP, "nmap is required for this command"
+    assert bHAVE_BASH, "bash is required for this command"
     f = "NmapUdp.bash"
     sFile = os.path.join(sDIR, f)
     if not os.path.exists(sFile):
@@ -741,63 +739,71 @@ if __name__ == '__main__':
 
     elif oArgs.command == 'nodes':
         iRet = -1
+        ep_sec = str(int(time.time()))
+        json_head = '{"last_scan":' +ep_sec \
+          +',"last_refresh":' +ep_sec \
+          +',"nodes":['
         if oArgs.nodes == 'select_tcp':
             assert oArgs.output, "--output required for this command"
             assert bHAVE_JQ, "jq is required for this command"
+            with open(oArgs.output, 'wt') as oFd:
+                oFd.write(json_head)                
             cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_tcp)|select(.ipv4|match(\".\"))' "
-            iRet = os.system(cmd +f" > {oArgs.output}")
+            iRet = os.system(cmd +f" >> {oArgs.output}")
+            with open(oArgs.output, 'at') as oFd:
+                oFd.write(']}')
 
         elif oArgs.nodes == 'select_udp':
             assert oArgs.output, "--output required for this command"
             assert bHAVE_JQ, "jq is required for this command"
+            with open(oArgs.output, 'wt') as oFd:
+                oFd.write(json_head)                
             cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.ipv4|match(\".\"))' "
-            iRet = os.system(cmd +f" > {oArgs.output}")
+            iRet = os.system(cmd +f" >> {oArgs.output}")
+            with open(oArgs.output, 'at') as oFd:
+                oFd.write(']}')
 
         elif oArgs.nodes == 'select_version':
             assert bHAVE_JQ, "jq is required for this command"
             assert oArgs.output, "--output required for this command"
+            with open(oArgs.output, 'wt') as oFd:
+                oFd.write(json_head)                
             cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.version|match(\"{sTOX_VERSION}\"))' "
-            iRet = os.system(cmd +f" > {oArgs.output}")
+            iRet = os.system(cmd +f" >> {oArgs.output}")
+            with open(oArgs.output, 'at') as oFd:
+                oFd.write(']}')
 
-        elif oArgs.nodes == 'nmap_tcp' and bHAVE_NMAP:
-            assert bHAVE_JQ, "jq is required for this command"
+        elif oArgs.nodes == 'nmap_tcp':
             assert oArgs.output, "--output required for this command"
             if not bAreWeConnected():
-                LOG.error(f"{oArgs.nodes} not connected")
-                iRet = -1
-            else:
-                cmd = vBashFileNmapTcp()
-                iRet = os.system(f"bash {cmd} < '{sFile}'" +f" >'{oArgs.output}'")
+                LOG.warn(f"{oArgs.nodes} we are not connected")
+            cmd = vBashFileNmapTcp()
+            iRet = os.system(f"bash {cmd} < '{sFile}'" +f" >'{oArgs.output}'")
 
-        elif oArgs.nodes == 'nmap_udp' and bHAVE_NMAP:
-            assert bHAVE_JQ, "jq is required for this command"
+        elif oArgs.nodes == 'nmap_udp':
             assert oArgs.output, "--output required for this command"
             if not bAreWeConnected():
-                LOG.error(f"{oArgs.nodes} not connected")
-                iRet = -1
-            else:
-                cmd = vBashFileNmapUdp()
-                iRet = os.system(f"bash {cmd} < '{sFile}'" +f" >'{oArgs.output}'")
+                LOG.warn(f"{oArgs.nodes} we are not connected")
+            cmd = vBashFileNmapUdp()
+            iRet = os.system(f"bash {cmd} < '{sFile}'" +f" >'{oArgs.output}'")
 
         elif oArgs.nodes == 'download' and download_url:
             if not bAreWeConnected():
-                LOG.error(f"{oArgs.nodes} not connected")
+                LOG.warn(f"{oArgs.nodes} we are not connected")
+            url = oArgs.download_nodes_url
+            b = download_url(url)
+            if not bSAVE:
+                LOG.warn("failed downloading list of nodes")
                 iRet = -1
             else:
-                url = oArgs.download_nodes_url
-                bSAVE = download_url(url)
-                if not bSAVE:
-                    LOG.warn("failed downloading list of nodes")
-                    iRet = -1
+                if oArgs.output:
+                    oStream = open(oArgs.output, 'rb')
+                    oStream.write(b)
                 else:
-                    if oArgs.output:
-                        oStream = open(oArgs.output, 'rb')
-                        oStream.write(bSAVE)
-                    else:
-                        oStream = sys.stdout
-                        oStream.write(str(bSAVE, sENC))
-                    iRet = -1
-                    LOG.info(f"downloaded list of nodes saved to {oStream}")
+                    oStream = sys.stdout
+                    oStream.write(str(b, sENC))
+                iRet = -1
+                LOG.info(f"downloaded list of nodes to {oStream}")
 
         if iRet > 0:
             LOG.warn(f"{oArgs.nodes} iRet={iRet} to {oArgs.output}")

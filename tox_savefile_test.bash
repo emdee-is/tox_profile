@@ -1,4 +1,4 @@
-#!/bin/sh -e
+#!/bin/sh
 # -*- mode: sh; fill-column: 75; tab-width: 8; coding: utf-8-unix -*-
 
 PREFIX=/o/var/local/src
@@ -13,8 +13,8 @@ WRAPPER=$PREFIX/toxygen_wrapper
 	ERROR() { echo ERROR $* ; }
     }
 
-set -- -e
-target=$PREFIX/tox_profile/logging_tox_savefile.py
+# set -- -e
+target=$PREFIX/tox_profile/tox_savefile.py
 [ -s $target ] || exit 1
 
 tox=$HOME/.config/tox/toxic_profile.tox
@@ -43,7 +43,10 @@ $EXE $target --command decrypt --output /tmp/toxic_profile.bin $tox || exit 11
 
 tox=/tmp/toxic_profile.bin
 INFO info $tox
-$EXE $target --command info --info info $tox 2>/tmp/toxic_profile.info || exit 13
+$EXE $target --command info --info info $tox 2>/tmp/toxic_profile.info || {
+    ERROR $EXE $target --command info --info info $tox
+    exit 13
+}
 [ -s /tmp/toxic_profile.info ] || exit 14
 
 INFO /tmp/toxic_profile.save
@@ -82,14 +85,16 @@ the_tox=$json
 the_base=`echo $the_tox | sed -e 's/.save$//' -e 's/.json$//'`
 [ "$HAVE_JQ" = 0 ] || \
     for nmap in select_tcp select_udp select_version ; do
-       INFO $the_base.$nmap
-       $EXE $target --command nodes --nodes $nmap \
-	   --output $the_base.$nmap.json $the_tox || exit 31
-      [ -s $the_base.$nmap.json ] || exit 32
+	INFO $the_base.$nmap
+	$EXE $target --command nodes --nodes $nmap \
+	     --output $the_base.$nmap.json $the_tox || exit 31
+	[ -s $the_base.$nmap.json ] || exit 32
+	[ $nmap = select_tcp ] && \
+	    grep '"status_tcp": false' $the_base.select_tcp.json && exit 33
+	[ $nmap = select_udp ] && \
+	    grep '"status_udp": false' $the_base.select_udp.json && exit 34
     done
 
-grep '"status_tcp": false' $the_base.select_tcp.json && exit 33
-grep '"status_udp": false' $the_base.select_udp.json && exit 34
 
 ls -l /tmp/toxic_profile.* /tmp/toxic_nodes.*
 
@@ -100,9 +105,16 @@ the_base=`echo $the_tox | sed -e 's/.save$//' -e 's/.tox$//'`
 [ "$HAVE_JQ" = 0 ] || \
 [ "$HAVE_NMAP" = 0 ] || \
     for nmap in nmap_tcp nmap_udp nmap_onion ; do
+#	[ $nmap = select_tcp ] && continue
+#	[ $nmap = select_udp ] && continue
         INFO $the_base.$nmap 
         $EXE $target --command info --info $nmap \
-	     --output $the_base.$nmap $the_tox.json || exit 40
+	     --output $the_base.$nmap $the_tox.json || {
+	    # select_tcp may be empty and jq errors
+	    # exit 41
+	    WARN  $the_base.$nmap.json
+	    continue
+	}
 	[ -s  $the_base.$nmap.json ] || exit 41
     done
 
