@@ -100,6 +100,18 @@ bDEBUG = 'DEBUG' in os.environ and os.environ['DEBUG'] != 0
 def trace(s): LOG.log(LOG.level, '+ ' +s)
 LOG.trace = trace
 
+global lOUT, bOUT, aOUT, sENC
+lOUT = []
+aOUT = {}
+bOUT = b''
+sENC = 'utf-8'
+# grep '#''#' logging_tox_savefile.py|sed -e 's/.* //'
+sEDIT_HELP = """
+NAME,.,Nick_name,str
+STATUSMESSAGE,.,Status_message,str
+STATUS,.,Online_status,int
+"""
+
 #messenger.c
 MESSENGER_STATE_TYPE_NOSPAMKEYS = 1
 MESSENGER_STATE_TYPE_DHT = 2
@@ -176,7 +188,6 @@ Length  Contents
 8  uint64_t Last seen time
 
 """
-    global sENC
     dStatus = { #  Status  Meaning
                0:  'Not a friend',
                1:  'Friend added',
@@ -419,7 +430,7 @@ def process_chunk(index, state, oArgs=None):
     label = dSTATE_TYPE[data_type]
     if oArgs.command == 'edit' and oArgs.edit:
         section,num,key,val = oArgs.edit.split(',',3)
-    
+
     diff =  index - len(bOUT)
     if bDEBUG and diff > 0:
         LOG.warn(f"PROCESS_CHUNK {label} index={index} bOUT={len(bOUT)} delta={diff} length={length}")
@@ -459,7 +470,7 @@ def process_chunk(index, state, oArgs=None):
                 result = bytes(val, sENC)
                 length = len(result)
                 LOG.info(f"{label} {key} EDITED to {val}")
-                
+
     elif data_type == MESSENGER_STATE_TYPE_STATUSMESSAGE:
         mess = str(result, sENC)
         LOG.info(f"{label} StatusMessage = " +mess)
@@ -471,7 +482,7 @@ def process_chunk(index, state, oArgs=None):
                 result = bytes(val, sENC)
                 length = len(result)
                 LOG.info(f"{label} {key} EDITED to {val}")
-            
+
     elif data_type == MESSENGER_STATE_TYPE_STATUS:
         # 1  uint8_t status (0 = online, 1 = away, 2 = busy)
         dStatus = {0: 'online', 1: 'away', 2: 'busy'}
@@ -521,7 +532,7 @@ def process_chunk(index, state, oArgs=None):
     elif data_type != MESSENGER_STATE_TYPE_END:
         LOG.error("UNRECOGNIZED datatype={datatype}")
         sys.exit(1)
-        
+
     else:
         LOG.info("END") # That's all folks...
         # drop through
@@ -651,7 +662,7 @@ def vSetupLogging(loglevel=logging.DEBUG):
     logging._defaultFormatter = logging.Formatter(datefmt='%m-%d %H:%M:%S')
     logging._defaultFormatter.default_time_format = '%m-%d %H:%M:%S'
     logging._defaultFormatter.default_msec_format = ''
-    
+
 def oMainArgparser(_=None):
     if not os.path.exists('/proc/sys/net/ipv6'):
         bIpV6 = 'False'
@@ -694,18 +705,6 @@ def oMainArgparser(_=None):
                         help='tox profile file - may be encrypted')
     return parser
 
-# grep '#''#' logging_tox_savefile.py|sed -e 's/.* //'
-sEDIT_HELP = """
-NAME,.,Nick_name,str
-STATUSMESSAGE,.,Status_message,str
-STATUS,.,Online_status,int
-"""
-
-global lOUT, bOUT, aOUT, sENC
-lOUT = []
-aOUT = {}
-bOUT = b''
-sENC = 'utf-8'
 if __name__ == '__main__':
     lArgv = sys.argv[1:]
     parser = oMainArgparser()
