@@ -3,10 +3,16 @@
 Read and manipulate tox profile files. It started as a simple script from
 <https://stackoverflow.com/questions/30901873/what-format-are-tox-files-stored-in>
 
-For the moment tox_savefile.py just reads a Tox profile and
-prints to stdout various things that it finds.  Then it writes what it
-found in YAML to stderr.  Later it can be extended to print out JSON
-or YAML, and then extended to accept JSON or YAML to write a profile.
+```tox_savefile.py``` reads a Tox profile and prints to stderr various
+things that it finds.  Then can write what it found in JSON/YAML/REPR/PPRINT
+to a file. It can also test the nodes in a profile using ```nmap```.
+
+It can also download, select, or test nodes in a ```DHTnode.json``` file.
+
+It can also decrypt a profile, saving the output to a file.
+
+It can also edit a profile, changing a few select fields.
+Later it can be extended to edit more crucial fields.
 
 ## Usage
 
@@ -14,21 +20,24 @@ Reads a tox profile and prints out information on what's in there to stderr.
 Call it with one argument, the filename of the profile for the decrypt, edit
 or info commands, or the filename of the nodes file for the nodes command.
 
-3 commands are supported:
+4 commands are supported:
 1. ```--command decrypt``` decrypts the profile and writes to the result
 to stdout
 2. ```--command info``` prints info about what's in the Tox profile to stderr
 3. ```--command nodes``` assumes you are reading a json nodes file instead of
   a profile
+4. ```--command edit``` edits the profile and writes to the result
+to a file.
 
 ```
 usage: tox_savefile.py [-h] [--output OUTPUT]
-                               [--command {info,decrypt,nodes}]
+                               [--command info|decrypt|nodes|edit]
                                [--indent INDENT]
-                               [--info {info,repr,yaml,json,pprint,nmap_udp,nmap_tcp}]
-                               [--nodes {select_tcp,select_udp,select_version,nmap_tcp,nmap_udp}]
+                               [--info info|repr|yaml|json|pprint|nmap_udp|nmap_tcp]
+                               [--nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp]
+			       [--edit help|section,num,key,val]
                                [--download_nodes_url DOWNLOAD_NODES_URL]
-                               [profile]
+                               profile
 ```
 Positional arguments:
 ```
@@ -37,13 +46,14 @@ Positional arguments:
 Optional arguments:
 ```
   -h, --help            show this help message and exit
-  --command {info,decrypt,nodes}
+  --command {info,decrypt,nodes,edit}
                         Action command - default: info
   --output OUTPUT       Destination for info/decrypt/nodes - defaults to stdout
-  --info {info,repr,yaml,json,pprint,nmap_udp,nmap_tcp}
+  --info info|repr|yaml|json|pprint|nmap_udp|nmap_tcp
                         Format for info command
-  --nodes {select_tcp,select_udp,select_version,nmap_tcp,nmap_udp}
+  --nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp
                         Action for nodes command (requires jq)
+  --edit help|section,num,key,val
   --indent INDENT       Indent for yaml/json/pprint
   --download_nodes_url DOWNLOAD_NODES_URL
 ```
@@ -83,17 +93,17 @@ Reguires ```nmap``` and uses ```sudo```.
 
 ### --command decrypt
 
-Decrypt a profile.
+Decrypt a profile, with ```--output``` to a filename.
 
 ### --command edit
 
 The code now can generate an edited copy of the profile.
-Use the command ```--command edit --edit section,key,val``` with
+Use the command ```--command edit --edit section,num,key,val``` with
 ```--output``` and a filename, to process the file with info to stderr,
 and it will save an copy of the edited file to the
 ```--output``` file (unencrypted). There's not much editing yet; give
 ```--command edit --edit help``` to get a list of what Available Sections,
-and Supported Quads (section,num,key,type) that can be edited.
+and Supported Quads ```(section,num,key,type)``` that can be edited.
 Currently it is:
 ```
 NAME,.,Nick_name,str

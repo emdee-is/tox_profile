@@ -749,9 +749,8 @@ if __name__ == '__main__':
             with open(oArgs.output, 'wt') as oFd:
                 oFd.write(json_head)                
             cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_tcp)|select(.ipv4|match(\".\"))' "
-            iRet = os.system(cmd +f" >> {oArgs.output}")
-            with open(oArgs.output, 'at') as oFd:
-                oFd.write(']}')
+            iRet = os.system(cmd +"| sed -e '2,$s/^{/,{/'" +f" >>{oArgs.output}")
+            with open(oArgs.output, 'at') as oFd: oFd.write(']}\n')
 
         elif oArgs.nodes == 'select_udp':
             assert oArgs.output, "--output required for this command"
@@ -759,19 +758,19 @@ if __name__ == '__main__':
             with open(oArgs.output, 'wt') as oFd:
                 oFd.write(json_head)                
             cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.ipv4|match(\".\"))' "
-            iRet = os.system(cmd +f" >> {oArgs.output}")
-            with open(oArgs.output, 'at') as oFd:
-                oFd.write(']}')
+            iRet = os.system(cmd +"| sed -e '2,$s/^{/,{/'" +f" >>{oArgs.output}")
+            with open(oArgs.output, 'at') as oFd: oFd.write(']}\n')
 
         elif oArgs.nodes == 'select_version':
             assert bHAVE_JQ, "jq is required for this command"
             assert oArgs.output, "--output required for this command"
             with open(oArgs.output, 'wt') as oFd:
                 oFd.write(json_head)                
-            cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.version|match(\"{sTOX_VERSION}\"))' "
-            iRet = os.system(cmd +f" >> {oArgs.output}")
+            cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.version|match(\"{sTOX_VERSION}\"))'" 
+                
+            iRet = os.system(cmd +"| sed -e '2,$s/^{/,{/'" +f" >>{oArgs.output}")
             with open(oArgs.output, 'at') as oFd:
-                oFd.write(']}')
+                oFd.write(']}\n')
 
         elif oArgs.nodes == 'nmap_tcp':
             assert oArgs.output, "--output required for this command"
