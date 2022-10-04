@@ -98,23 +98,32 @@ for the_tox in $tox /tmp/toxic_profile.save ; do
 	     --command info --info $elt \
 	     --output $the_base.$elt $the_tox '2>'$the_base.$elt.err
 	$EXE $target --command info --info $elt \
-		    --output $the_base.$elt $the_tox  2>$the_base.$nmap.err || exit ${i}0
+		    --output $the_base.$elt $the_tox 2>$the_base.$nmap.err || exit ${i}0
        [ -s $the_base.$elt ] || exit ${i}1
     done
 
     $EXE $target --command edit --edit help $the_tox 2>/dev/null  || exit ${i}2
 
-    INFO $i $the_base.edit1  'STATUSMESSAGE,.,Status_message,Toxxed on Toxic'
+    # edit the status message
+    INFO $i $the_base.Status_message  'STATUSMESSAGE,.,Status_message,Toxxed on Toxic'
     $EXE $target --command edit --edit 'STATUSMESSAGE,.,Status_message,Toxxed on Toxic' \
-	       --output $the_base.edit1.tox $the_tox  2>&1|grep EDIT
-    [ -s $the_base.edit1.tox ] || exit ${i}3
-    $EXE $target --command info $the_base.edit1.tox 2>&1|grep Toxxed || exit ${i}4
+	       --output $the_base.Status_message.tox $the_tox  2>&1|grep EDIT || exit ${i}3
+    [ -s $the_base.Status_message.tox ] || exit ${i}3
+    $EXE $target --command info $the_base.Status_message.tox 2>&1|grep Toxxed || exit ${i}4
 
-    INFO $i $the_base.edit2  'NAME,.,Nick_name,FooBar'
+    # edit the nick_name
+    INFO $i $the_base.Nick_name  'NAME,.,Nick_name,FooBar'
     $EXE $target --command edit --edit 'NAME,.,Nick_name,FooBar' \
-	       --output $the_base.edit2.tox $the_tox  2>&1|grep EDIT
-    [ -s $the_base.edit2.tox ] || exit ${i}5
-    $EXE $target --command info $the_base.edit2.tox 2>&1|grep FooBar || exit ${i}6
+	       --output $the_base.Nick_name.tox $the_tox  2>&1|grep EDIT || exit ${i}5
+    [ -s $the_base.Nick_name.tox ] || exit ${i}5
+    $EXE $target --command info $the_base.Nick_name.tox 2>&1|grep FooBar || exit ${i}6
+
+    # set the DHTnodes to empty
+    INFO $i $the_base.noDHT  'DHT,.,DHTnode,'
+    $EXE $target --command edit --edit 'DHT,.,DHTnode,' \
+	       --output $the_base.noDHT.tox $the_tox  2>&1|grep EDIT || exit ${i}7
+    [ -s $the_base.noDHT.tox ] || exit ${i}7
+    $EXE $target --command info $the_base.noDHT.tox 2>&1|grep 'NO DHT' || exit ${i}8
 
 done
 

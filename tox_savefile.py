@@ -113,12 +113,19 @@ LOG.trace = trace
 global bOUT, aOUT, sENC
 aOUT = {}
 bOUT = b''
-sENC = 'utf-8'
+sENC = sys.getdefaultencoding() # 'utf-8'
+lNULLS = ['', '[]', 'null']
 # grep '#''#' logging_tox_savefile.py|sed -e 's/.* //'
 sEDIT_HELP = """
 NAME,.,Nick_name,str
 STATUSMESSAGE,.,Status_message,str
 STATUS,.,Online_status,int
+NOSPAMKEYS,.,Nospam,hexstr
+NOSPAMKEYS,.,Public_key,hexstr
+NOSPAMKEYS,.,Private_key,hexstr
+DHT,.,DHTnode,
+TCP_RELAY,.,TCPnode,
+PATH_NODE,.,PATHnode,
 """
 
 #messenger.c
@@ -438,10 +445,7 @@ def process_chunk(index, state, oArgs=None):
 
     label = dSTATE_TYPE[data_type]
     if oArgs.command == 'edit' and oArgs.edit:
-#        if ':' in oArgs.edit:
-#            section,num,key,val = oArgs.edit.split(':')[0].split(',',3)
-#        else:
-        section,num,key,val = oArgs.edit.split(',',3)
+        section,num,key,val = oArgs.edit.split(',', 3)
 
     diff =  index - len(bOUT)
     if bDEBUG and diff > 0:
@@ -479,12 +483,29 @@ def process_chunk(index, state, oArgs=None):
                 
     elif data_type == MESSENGER_STATE_TYPE_DHT:
         LOG.debug(f"process_chunk {label} length={length}")
-        lIN = lProcessDHTnodes(state, index, length, result)
+        if length > 4:
+            lIN = lProcessDHTnodes(state, index, length, result, "DHTnode")
+        else:
+            lIN = []
+            LOG.info(f"NO {label}")
         aOUT.update({label: lIN})
+        if oArgs.command == 'edit' and section == label:
+            ## DHT,.,DHTnode,
+            if num == '.' and key == "DHTnode" and val in lNULLS:
+                # 4  uint32_t (0x159000D)
+                status = 0x159000D
+                # FixMe - dunno
+                result = struct.pack("<L", status)
+                length = 4
+                LOG.info(f"{label} {key} EDITED to {val}")
 
     elif data_type == MESSENGER_STATE_TYPE_FRIENDS:
         LOG.info(f"{label} {length // 2216} FRIENDS {length % 2216}")
-        lIN = lProcessFriends(state, index, length, result)
+        if length > 0:
+            lIN = lProcessFriends(state, index, length, result)
+        else:
+            lIN = []
+            LOG.info(f"NO {label}")
         aOUT.update({label: lIN})
 
     elif data_type == MESSENGER_STATE_TYPE_NAME:
@@ -541,6 +562,12 @@ def process_chunk(index, state, oArgs=None):
             lIN = []
             LOG.info(f"NO {label}")
         aOUT.update({label: lIN})
+        if oArgs.command == 'edit' and section == label:
+            ## TCP_RELAY,.,TCPnode,
+            if num == '.' and key == "TCPnode" and val in lNULLS:
+                result = b''
+                length = 0
+                LOG.info(f"{label} {key} EDITED to {val}")
 
     elif data_type == MESSENGER_STATE_TYPE_PATH_NODE:
         #define NUM_SAVED_PATH_NODES 8
@@ -551,6 +578,12 @@ def process_chunk(index, state, oArgs=None):
             LOG.debug(f"process_chunk {label} bytes={length}")
         lIN = lProcessNodeInfo(state, index, length, result, "PATHnode")
         aOUT.update({label: lIN})
+        if oArgs.command == 'edit' and section == label:
+            ## PATH_NODE,.,PATHnode,
+            if num == '.' and key == "PATHnode" and val in lNULLS:
+                result = b''
+                length = 0
+                LOG.info(f"{label} {key} EDITED to {val}")
 
     elif data_type == MESSENGER_STATE_TYPE_CONFERENCES:
         lIN = []
