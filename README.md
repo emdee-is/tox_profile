@@ -30,14 +30,15 @@ to stdout
 to a file.
 
 ```
-usage: tox_savefile.py [-h] [--output OUTPUT]
+usage: tox_savefile.py [-h]
                                [--command info|decrypt|nodes|edit]
                                [--info info|repr|yaml|json|pprint|nmap_udp|nmap_tcp]
                                [--indent INDENT]
                                [--nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp,download]
                                [--download_nodes_url DOWNLOAD_NODES_URL]
 			       [--edit help|section,num,key,val]
-                               profile
+ 			       [--output OUTPUT]
+			        profile		       
 ```
 Positional arguments:
 ```
@@ -48,7 +49,7 @@ Optional arguments:
   -h, --help            show this help message and exit
   --command {info,decrypt,nodes,edit}
                         Action command - default: info
-  --output OUTPUT       Destination for info/decrypt/nodes - defaults to stdout
+  --output OUTPUT       Destination for info/decrypt/nodes - can be the same as input
   --info info|repr|yaml|json|pprint|nmap_udp|nmap_tcp (may require nmap)
                         Format for info command
   --indent INDENT       Indent for yaml/json/pprint
@@ -111,12 +112,27 @@ Currently it is:
 NAME,.,Nick_name,str
 STATUSMESSAGE,.,Status_message,str
 STATUS,.,Online_status,int
+NOSPAMKEYS,.,Nospam,hexstr
+NOSPAMKEYS,.,Public_key,hexstr
+NOSPAMKEYS,.,Private_key,hexstr
 ```
 The ```num``` field is to accomodate sections that have lists:
 * ```.``` is a placeholder for sections that don't have lists.
 * ```<int>``` is for the nth element of the list, zero-based.
 * ```*``` is for all elements of the list.
 
+The ```--output``` can be the same as input as the input file is read
+and closed before processing starts.
+
+You can use the ```---edit``` command to synchronize profiles:
+1. Use ```--command info --info info``` on the target profile to get the
+   ```Nospam```, ```Public_key``` and ```Private_key``` of the target.
+2. Backup the target and copy the source profile the the target.
+3. Edit the target with with the values from 1) with:```
+--command edit --edit NOSPAMKEYS,.,Nospam,hexstr --output target target
+--command edit --edit NOSPAMKEYS,.,Public_key,hexstr --output target target
+--command edit --edit NOSPAMKEYS,.,Private_key,hexstr --output target target
+```
 
 ## Requirements
 

@@ -438,6 +438,9 @@ def process_chunk(index, state, oArgs=None):
 
     label = dSTATE_TYPE[data_type]
     if oArgs.command == 'edit' and oArgs.edit:
+#        if ':' in oArgs.edit:
+#            section,num,key,val = oArgs.edit.split(':')[0].split(',',3)
+#        else:
         section,num,key,val = oArgs.edit.split(',',3)
 
     diff =  index - len(bOUT)
@@ -457,7 +460,23 @@ def process_chunk(index, state, oArgs=None):
                "Public_key": f"{public_key}",
                "Private_key": f"{private_key}"}
         aOUT.update({label: aIN})
-
+        if oArgs.command == 'edit' and section == label:
+            ## NOSPAMKEYS,.,Nospam,hexstr
+            if key == "Nospam":
+                assert len(val) == 4*2, val
+                result = bytes.fromhex (val) +result[4:]                
+                LOG.info(f"{label} {key} EDITED to {val}")
+            ## NOSPAMKEYS,.,Public_key,hexstr
+            elif key == "Public_key":
+                assert len(val) == 32 * 2, val
+                result = +result[0:4] +bytes.fromhex(val) +result[36:]
+                LOG.info(f"{label} {key} EDITED to {val}")
+            ## NOSPAMKEYS,.,Private_key,hexstr
+            elif key == "Private_key":
+                assert len(val) == 32 * 2, val
+                result = +result[0:36] +bytes.fromhex(val)
+                LOG.info(f"{label} {key} EDITED to {val}")
+                
     elif data_type == MESSENGER_STATE_TYPE_DHT:
         LOG.debug(f"process_chunk {label} length={length}")
         lIN = lProcessDHTnodes(state, index, length, result)
@@ -686,8 +705,9 @@ def oMainArgparser(_=None):
                         choices=['info', 'decrypt', 'nodes', 'edit'],
                         required=True,
                         help='Action command - default: info')
+    #                         nargs='+',
     parser.add_argument('--edit', type=str, default='',
-                        help='comma seperated SECTION,key,value - unfinished')
+                        help='comma seperated SECTION,num,key,value - or help for ')
     parser.add_argument('--indent', type=int, default=2,
                         help='Indent for yaml/json/pprint')
     choices=['info', 'save', 'repr', 'yaml','json', 'pprint']
