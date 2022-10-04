@@ -1,6 +1,8 @@
 #!/bin/sh
 # -*- mode: sh; fill-column: 75; tab-width: 8; coding: utf-8-unix -*-
 
+# tox_savefile.py has a lot of features so it needs test coverage
+
 PREFIX=/o/var/local/src
 EXE=python3.sh
 WRAPPER=$PREFIX/toxygen_wrapper
@@ -20,113 +22,202 @@ target=$PREFIX/tox_profile/tox_savefile.py
 tox=$HOME/.config/tox/toxic_profile.tox
 [ -s $tox ] || exit 2
 
-json=$HOME/.config/tox/DHTnodes.json
-[ -s $json ] || exit 3
-
-[ -d $WRAPPER ] || { ERROR wrapper is required https://git.plastiras.org/emdee/toxygen_wrapper ; exit 5 ; }
+[ -d $WRAPPER ] || {
+    ERROR wrapper is required https://git.plastiras.org/emdee/toxygen_wrapper
+    exit 3
+}
 export  PYTHONPATH=$WRAPPER
+
+json=$HOME/.config/tox/DHTnodes.json
+[ -s $json ] || exit 4
 
 which jq > /dev/null && HAVE_JQ=1 || HAVE_JQ=0
 which nmap > /dev/null && HAVE_NMAP=1 || HAVE_NMAP=0
 
 sudo rm -f /tmp/toxic_profile.* /tmp/toxic_nodes.*
 
+test_jq () {
+    [ $# -eq 3 ] || {
+	ERROR test_jq '#' "$@"
+	return 3
+    }
+    in=$1
+    out=$2
+    err=$3
+    [ -s $in ] || {
+	ERROR $i test_jq null $in
+	return 4
+    }
+    jq . < $in >$out 2>$err || {
+	ERROR $i test_jq $json
+	return 5
+    }
+    grep error: $err && {
+	ERROR $i test_jq $json
+	return 6
+    }
+    [ -s $out ] || {
+	ERROR $i null $out
+	return 7
+    }
+    [ -s $err ] || rm -f $err
+    return 0
+}
+
+i=0
 [ "$HAVE_JQ" = 0 ] || \
-  jq . <  $json >/tmp/toxic_nodes.json || { ERROR jq $json ; exit 4 ; }
+    test_jq $json /tmp/toxic_nodes.json /tmp/toxic_nodes.err || exit ${i}$?
 [ -f /tmp/toxic_nodes.json ] || cp -p $json /tmp/toxic_nodes.json
 json=/tmp/toxic_nodes.json
 
+i=1
 # required password
-INFO decrypt /tmp/toxic_profile.bin
-$EXE $target --command decrypt --output /tmp/toxic_profile.bin $tox || exit 11
-[ -s /tmp/toxic_profile.bin ] || exit 12
+INFO $i decrypt /tmp/toxic_profile.bin
+$EXE $target --command decrypt --output /tmp/toxic_profile.bin $tox || exit ${i}1
+[ -s /tmp/toxic_profile.bin ] || exit ${i}2
 
 tox=/tmp/toxic_profile.bin
-INFO info $tox
+INFO $i info $tox
 $EXE $target --command info --info info $tox 2>/tmp/toxic_profile.info || {
-    ERROR $EXE $target --command info --info info $tox
-    exit 13
+    ERROR $i $EXE $target --command info --info info $tox
+    exit ${i}3
 }
-[ -s /tmp/toxic_profile.info ] || exit 14
+[ -s /tmp/toxic_profile.info ] || exit ${i}4
 
-INFO /tmp/toxic_profile.save
-$EXE $target --command info --info save --output /tmp/toxic_profile.save $tox 2>/dev/null || exit 15
-[ -s /tmp/toxic_profile.save ] || exit 16
+INFO $i /tmp/toxic_profile.save
+$EXE $target --command info --info save --output /tmp/toxic_profile.save $tox 2>/dev/null || exit ${i}5
+[ -s /tmp/toxic_profile.save ] || exit ${i}6
 
-for the_tox in /tmp/toxic_profile.save ; do
+i=2
+for the_tox in $tox /tmp/toxic_profile.save ; do
+    DBUG $i $the_tox
     the_base=`echo $the_tox | sed -e 's/.save$//' -e 's/.tox$//'`
     for elt in json yaml pprint repr ; do
-	INFO $the_base.$elt
-	[ "$DEBUG" != 1 ] || echo DEBUG $EXE $target \
-				  --command info --info $elt \
-				  --output $the_base.$elt $the_tox
+	INFO $i $the_base.$elt
+	DBUG $EXE $target \
+	     --command info --info $elt \
+	     --output $the_base.$elt $the_tox '2>'$the_base.$elt.err
 	$EXE $target --command info --info $elt \
-		    --output $the_base.$elt $the_tox 2>/dev/null || exit 20
-       [ -s $the_base.$elt ] || exit 21
+		    --output $the_base.$elt $the_tox  2>$the_base.$nmap.err || exit ${i}0
+       [ -s $the_base.$elt ] || exit ${i}1
     done
 
-    $EXE $target --command edit --edit help $the_tox 2>/dev/null  || exit 22
+    $EXE $target --command edit --edit help $the_tox 2>/dev/null  || exit ${i}2
 
-    INFO $the_base.edit1  'STATUSMESSAGE,.,Status_message,Toxxed on Toxic'
+    INFO $i $the_base.edit1  'STATUSMESSAGE,.,Status_message,Toxxed on Toxic'
     $EXE $target --command edit --edit 'STATUSMESSAGE,.,Status_message,Toxxed on Toxic' \
 	       --output $the_base.edit1.tox $the_tox  2>&1|grep EDIT
-    [ -s $the_base.edit1.tox ] || exit 23
-    $EXE $target --command info $the_base.edit1.tox 2>&1|grep Toxxed || exit 24
+    [ -s $the_base.edit1.tox ] || exit ${i}3
+    $EXE $target --command info $the_base.edit1.tox 2>&1|grep Toxxed || exit ${i}4
 
-    INFO $the_base.edit2  'NAME,.,Nick_name,FooBar'
+    INFO $i $the_base.edit2  'NAME,.,Nick_name,FooBar'
     $EXE $target --command edit --edit 'NAME,.,Nick_name,FooBar' \
 	       --output $the_base.edit2.tox $the_tox  2>&1|grep EDIT
-    [ -s $the_base.edit2.tox ] || exit 25
-    $EXE $target --command info $the_base.edit2.tox 2>&1|grep FooBar || exit 26
+    [ -s $the_base.edit2.tox ] || exit ${i}5
+    $EXE $target --command info $the_base.edit2.tox 2>&1|grep FooBar || exit ${i}6
 
 done
 
-the_tox=$json
-the_base=`echo $the_tox | sed -e 's/.save$//' -e 's/.json$//'`
+i=3
 [ "$HAVE_JQ" = 0 ] || \
+for the_json in $json ; do
+    DBUG $i $the_json
+    the_base=`echo $the_json | sed -e 's/.json$//' -e 's/.tox$//'`
     for nmap in select_tcp select_udp select_version ; do
-	INFO $the_base.$nmap
 	$EXE $target --command nodes --nodes $nmap \
-	     --output $the_base.$nmap.json $the_tox || exit 31
-	[ -s $the_base.$nmap.json ] || exit 32
+	     --output $the_base.$nmap.json $the_json || {
+            WARN $i $the_json $nmap ${i}1
+            continue
+            }
+	[ -s $the_base.$nmap.json ] || {
+            WARN $i $the_json $nmap ${i}2
+            continue
+            }
 	[ $nmap = select_tcp ] && \
-	    grep '"status_tcp": false' $the_base.select_tcp.json && exit 33
+	    grep '"status_tcp": false' $the_base.$nmap.json && {
+            WARN $i $the_json $nmap ${i}3
+            continue
+            }
 	[ $nmap = select_udp ] && \
-	    grep '"status_udp": false' $the_base.select_udp.json && exit 34
+	    grep '"status_udp": false' $the_base.$nmap.json && {
+            WARN $i $the_json $nmap ${i}4
+            continue
+            }
+	test_jq $the_base.$nmap.json $the_base.$nmap.json.out /tmp/toxic_nodes.err || {
+	    retval=$?
+	    WARN $i $the_base.$nmap.json 3$?
+	}
+	INFO $i $the_base.$nmap
     done
-
+done
 
 ls -l /tmp/toxic_profile.* /tmp/toxic_nodes.*
 
-/usr/local/bin/proxy_ping_test.bash tor || exit 0
+# DEBUG=0 /usr/local/bin/proxy_ping_test.bash tor || exit 0
+ip route | grep ^def || exit 0
 
+i=4
 the_tox=$tox
-the_base=`echo $the_tox | sed -e 's/.save$//' -e 's/.tox$//'`
 [ "$HAVE_JQ" = 0 ] || \
 [ "$HAVE_NMAP" = 0 ] || \
+for the_tox in $tox /tmp/toxic_profile.save ; do
+    DBUG $i $the_tox
+    the_base=`echo $the_tox | sed -e 's/.save$//' -e 's/.tox$//'`
     for nmap in nmap_tcp nmap_udp nmap_onion ; do
 #	[ $nmap = select_tcp ] && continue
 #	[ $nmap = select_udp ] && continue
-        INFO $the_base.$nmap 
+        INFO $i $the_base.$nmap 
         $EXE $target --command info --info $nmap \
-	     --output $the_base.$nmap $the_tox.json || {
+	     --output $the_base.$nmap.out $the_tox 2>$the_base.$nmap.err || {
 	    # select_tcp may be empty and jq errors
-	    # exit 41
-	    WARN  $the_base.$nmap.json
+	    # exit ${i}1
+	    WARN $i $the_base.$nmap.err
 	    continue
 	}
-	[ -s  $the_base.$nmap.json ] || exit 41
+	[ -s  $the_base.$nmap.out ] || {
+	    ERROR $i $the_base.$nmap.out
+	    continue
+	}
     done
+done
 
-the_json=$json
-the_base=`echo $json | sed -e 's/.save$//' -e 's/.json$//'`
+i=5
 [ "$HAVE_JQ" = 0 ] || \
+for the_json in $json ; do
+    DBUG $i $the_json
+    the_base=`echo $the_json | sed -e 's/.save$//' -e 's/.json$//'`
     for nmap in nmap_tcp nmap_udp ; do
-        INFO $the_base.$nmap 
+        INFO $i $the_base.$nmap 
         $EXE $target --command nodes --nodes $nmap \
-	     --output $the_base.$nmap.json $the_json  || exit 51
-	[ -s  $the_base.$nmap.json ] || exit 52
+	     --output $the_base.$nmap $the_json 2>$the_base.$nmap.err || {
+            WARN $i $the_json $nmap ${i}1
+            continue
+            }
+	[ -s  $the_base.$nmap ] || {
+            ERROR $i $the_json $nmap ${i}2
+            exit ${i}2
+            }
     done
+done
+
+i=6
+DBUG $i
+$EXE $target --command nodes --nodes download \
+             --output /tmp/toxic_nodes.new $json || {
+    ERROR $i $EXE $target --command nodes --nodes download $json
+    exit ${i}1
+}
+[ -s /tmp/toxic_nodes.new ] || exit ${i}4
+json=/tmp/toxic_nodes.new
+[ "$HAVE_JQ" = 0 ] || \
+jq . < $json >/tmp/toxic_nodes.new.json 2>>/tmp/toxic_nodes.new.err || {
+    ERROR $i jq $json
+    exit ${i}2
+}
+[ "$HAVE_JQ" = 0 ] || \
+grep error: /tmp/toxic_nodes.new.err && {
+    ERROR $i jq $json
+    exit ${i}3
+}    
 
 exit 0
-

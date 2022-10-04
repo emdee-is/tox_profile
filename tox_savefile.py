@@ -6,7 +6,7 @@ Reads a tox profile and prints out information on what's in there to stderr.
 Call it with one argument, the filename of the profile for the decrypt or info
 commands, or the filename of the nodes file for the nodes command.
 
-3 commands are supported:
+4 commands are supported:
 --command decrypt
   decrypts the profile and writes to the result to stdout
 
@@ -15,22 +15,25 @@ commands, or the filename of the nodes file for the nodes command.
 
 --command nodes
   assumes you are reading a json nodes file instead of a profile
+
+--command edits
+  edits fields in a Tox profile with --output to a file
+
 """
 
 """
-  --output Destination for info/decrypt - defaults to stdout
+  --output Destination for info/decrypt/edit/nodes/download
   --info default='info',
-         choices=['info', 'save', 'repr', 'yaml','json', 'pprint']
+         choices=[info, save, repr, yaml,json, pprint]
          with --info=info prints info about the profile to stderr
+         yaml,json, pprint, repr - output format
          nmap_udp        - test DHT nodes with nmap
          nmap_tcp        - test TCP_RELAY nodes with nmap
          nmap_onion      - test PATH_NODE nodes with nmap
-         indents the output as: 'yaml','json', 'pprint'
   --indent for pprint/yaml/json default=2
 
-  --output Destination for the command - required
   --nodes
-       choices=['select_tcp', 'select_udp', 'nmap_tcp', 'select_version', 'nmap_udp']
+       choices=[select_tcp, select_udp, nmap_tcp, select_version, nmap_udp]
        select_udp      - select udp nodes
        select_tcp      - select tcp nodes
        nmap_udp        - test UDP nodes with nmap
@@ -38,6 +41,11 @@ commands, or the filename of the nodes file for the nodes command.
        select_version  - select nodes that are the latest version
        download        - download nodes from --download_nodes_url
   --download_nodes_url https://nodes.tox.chat/json
+
+  --edit 
+       help               - print a summary of what fields can be edited
+      section,num,key,val - edit the field section,num,key with val
+
 
 """
 

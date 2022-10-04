@@ -32,11 +32,11 @@ to a file.
 ```
 usage: tox_savefile.py [-h] [--output OUTPUT]
                                [--command info|decrypt|nodes|edit]
-                               [--indent INDENT]
                                [--info info|repr|yaml|json|pprint|nmap_udp|nmap_tcp]
-                               [--nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp]
-			       [--edit help|section,num,key,val]
+                               [--indent INDENT]
+                               [--nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp,download]
                                [--download_nodes_url DOWNLOAD_NODES_URL]
+			       [--edit help|section,num,key,val]
                                profile
 ```
 Positional arguments:
@@ -49,13 +49,13 @@ Optional arguments:
   --command {info,decrypt,nodes,edit}
                         Action command - default: info
   --output OUTPUT       Destination for info/decrypt/nodes - defaults to stdout
-  --info info|repr|yaml|json|pprint|nmap_udp|nmap_tcp
+  --info info|repr|yaml|json|pprint|nmap_udp|nmap_tcp (may require nmap)
                         Format for info command
-  --nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp
-                        Action for nodes command (requires jq)
-  --edit help|section,num,key,val
   --indent INDENT       Indent for yaml/json/pprint
+  --nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp|download
+                        Action for nodes command (requires jq and nmap)
   --download_nodes_url DOWNLOAD_NODES_URL
+  --edit help|section,num,key,val
 ```
 
 ### --command info
@@ -90,6 +90,8 @@ or nodes with the latest version. Requires ```jq```.
 Choose one of ```{nmap_tcp,nmap_udp}``` to run tests using ```nmap```
 for the ```status_tcp==True``` and ```status_udp==True``` nodes.
 Reguires ```nmap``` and uses ```sudo```.
+
+Choose ```download``` to download the nodes from ```--download_nodes_url```
 
 ### --command decrypt
 
@@ -149,6 +151,10 @@ Because it's written in Python it is easy to extend to, for example,
 rekeying a profile when copying a profile to a new device:
 <https://git.plastiras.org/emdee/tox_profile/wiki/MultiDevice-Announcements-POC>
 
+Or you could keep the keypair and synchronize profiles between different
+clients: e.g. your could keep your profile from toxic as master,
+and copy it over your qtox/toxygen/TriFa profile while preserving their
+ToxId keypair.
 
 ## Specification
 
