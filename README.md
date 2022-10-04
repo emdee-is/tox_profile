@@ -124,11 +124,15 @@ The ```num``` field is to accomodate sections that have lists:
 The ```--output``` can be the same as input as the input file is read
 and closed before processing starts.
 
-You can use the ```---edit``` command to synchronize profiles:
+You can use the ```---edit``` command to synchronize profiles, by
+keeping the keypair and synchronize profiles between different clients:
+e.g. your could keep your profile from toxic as master, and copy it over
+your qtox/toxygen/TriFa profile while preserving their keypair and NOSPAM:
+
 1. Use ```--command info --info info``` on the target profile to get the
    ```Nospam```, ```Public_key``` and ```Private_key``` of the target.
-2. Backup the target and copy the source profile the the target.
-3. Edit the target with with the values from 1) with:```
+2. Backup the target and copy the source profile to the target.
+3. Edit the target with the values from 1) with:```
 --command edit --edit NOSPAMKEYS,.,Nospam,hexstr --output target target
 --command edit --edit NOSPAMKEYS,.,Public_key,hexstr --output target target
 --command edit --edit NOSPAMKEYS,.,Private_key,hexstr --output target target
@@ -137,7 +141,7 @@ You can use the ```---edit``` command to synchronize profiles:
 ## Requirements
 
 If you want to read encrypted profiles, you need to download
-toxygen to deal with encrypted tox files, from:
+toxygen_wrapper to deal with encrypted tox files, from:
 <https://git.plastiras.org/emdee/toxygen_wrapper>
 Just put the toxygen/toxygen directory on your PYTHONPATH
 You also need to link your libtoxcore.so and libtoxav.so
@@ -164,13 +168,8 @@ required. It's available in most distros, or <https://nmap.org/>
 This has not been tested on Windwoes, but is should be simple to fix.
 
 Because it's written in Python it is easy to extend to, for example,
-rekeying a profile when copying a profile to a new device:
+supporting multidevices:
 <https://git.plastiras.org/emdee/tox_profile/wiki/MultiDevice-Announcements-POC>
-
-Or you could keep the keypair and synchronize profiles between different
-clients: e.g. your could keep your profile from toxic as master,
-and copy it over your qtox/toxygen/TriFa profile while preserving their
-ToxId keypair.
 
 ## Specification
 
