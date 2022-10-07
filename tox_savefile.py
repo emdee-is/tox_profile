@@ -241,16 +241,15 @@ def lProcessGroups(state, index, length, result, label="GROUPS"):
     """
     global sENC
     lIN = []
-    i = 0
     if not msgpack:
         LOG.warn(f"process_chunk Groups = NO msgpack bytes={length}")
         return []
     try:
         groups = msgpack.loads(result, raw=True)
         LOG.info(f"{label} {len(groups)} groups")
+        i = 0
         for group in groups:
             assert len(group) == 7, group
-            i += 1
 
             state_values, \
             state_bin, \
@@ -260,76 +259,105 @@ def lProcessGroups(state, index, length, result, label="GROUPS"):
             self_info, \
             saved_peers, = group
 
-            assert len(state_values) == 8, state_values
-            manually_disconnected, \
-            group_name_len, \
-            privacy_state, \
-            maxpeers, \
-            password_length, \
-            version, \
-            topic_lock, \
-            voice_state = state_values
-            LOG.info(f"lProcessGroups #{i} version={version}")
-            dBINS = {"Version": version,
-                     "Privacy_state": privacy_state}
-            lIN += [{"State_values": dBINS}]
+            if state_values is None:
+                LOG.warn(f"lProcessGroups #{i} state_values is None")
+            else:
+                assert len(state_values) == 8, state_values
+                manually_disconnected, \
+                group_name_len, \
+                privacy_state, \
+                maxpeers, \
+                password_length, \
+                version, \
+                topic_lock, \
+                voice_state = state_values
+                LOG.info(f"lProcessGroups #{i} version={version}")
+                dBINS = {"Version": version,
+                         "Privacy_state": privacy_state}
+                lIN += [{"State_values": dBINS}]
 
-            assert len(state_bin) == 5, state_bin
-            shared_state_sig, \
-            founder_public_key, \
-            group_name_len, \
-            password_length, \
-            mod_list_hash = state_bin
-            LOG.info(f"lProcessGroups #{i} founder_public_key={bin_to_hex(founder_public_key)}")
-            dBINS = {"Founder_public_key": bin_to_hex(founder_public_key)}
-            lIN += [{"State_bin": dBINS}]
+            if state_bin is None:
+                LOG.warn(f"lProcessGroups #{i} state_bin is None")
+            else:
+                assert len(state_bin) == 5, state_bin
+                shared_state_sig, \
+                founder_public_key, \
+                group_name_len, \
+                password_length, \
+                mod_list_hash = state_bin
+                LOG.info(f"lProcessGroups #{i} founder_public_key={bin_to_hex(founder_public_key)}")
+                dBINS = {"Founder_public_key": bin_to_hex(founder_public_key)}
+                lIN += [{"State_bin": dBINS}]
 
-            assert len(topic_info) == 6, topic_info
-            topic_info_topic = str(topic_info[3], sENC)
-            LOG.info(f"lProcessGroups #{i} topic_info_topic={topic_info_topic}")
-            dBINS = {"topic_info_topic": topic_info_topic}
-            lIN += [{"Topic_info": dBINS}]
+            if topic_info is None:
+                LOG.warn(f"lProcessGroups #{i} topic_info is None")
+            else:
+                assert len(topic_info) == 6, topic_info
+                topic_info_topic = str(topic_info[3], sENC)
+                LOG.info(f"lProcessGroups #{i} topic_info_topic={topic_info_topic}")
+                dBINS = {"topic_info_topic": topic_info_topic}
+                lIN += [{"Topic_info": dBINS}]
 
-            assert len(mod_list) == 2, mod_list
-            num_moderators = mod_list[0]
-            LOG.info(f"lProcessGroups #{i} num moderators={mod_list[0]}")
-            #define CRYPTO_SIGN_PUBLIC_KEY_SIZE    32
-            mods = mod_list[1]
-            assert len(mods) % 32 == 0, len(mods)
-            assert len(mods) == num_moderators * 32, len(mods)
-            lMODS = []
-            for j in range(num_moderators):
-                mod = mods[j*32:j*32 + 32]
-                LOG.info(f"lProcessGroups group#{i} mod#{j} sig_pk={bin_to_hex(mod)}")
-                lMODS += [{"Sig_pk": bin_to_hex(mod)}]
-            lIN += [{"Moderators": lMODS}]
+            if mod_list is None:
+                LOG.warn(f"lProcessGroups #{i} mod_list is None")
+            else:
+                assert len(mod_list) == 2, mod_list
+                num_moderators = mod_list[0]
+                LOG.info(f"lProcessGroups #{i} num moderators={mod_list[0]}")
+                #define CRYPTO_SIGN_PUBLIC_KEY_SIZE    32
+                lMODS = []
+                if not num_moderators:
+                    LOG.warn(f"lProcessGroups #{i} num_moderators is 0")
+                else:
+                    mods = mod_list[1]
+                    assert len(mods) % 32 == 0, len(mods)
+                    assert len(mods) == num_moderators * 32, len(mods)
+                    for j in range(num_moderators):
+                        mod = mods[j*32:j*32 + 32]
+                        LOG.info(f"lProcessGroups group#{i} mod#{j} sig_pk={bin_to_hex(mod)}")
+                        lMODS += [{"Sig_pk": bin_to_hex(mod)}]
+                lIN += [{"Moderators": lMODS}]
 
-            assert len(keys) == 4, keys
-            LOG.debug(f"lProcessGroups #{i} {repr(list(map(len, keys)))}")
-            chat_public_key, \
-                chat_secret_key, \
-                self_public_key, \
-                self_secret_key = keys
-            LOG.info(f"lProcessGroups #{i} chat_public_key={bin_to_hex(chat_public_key)}")
-            lIN[0].update({"Chat_public_key": bin_to_hex(chat_public_key)})
-            if int(bin_to_hex(chat_secret_key), 16) != 0:
-                # 192 * b'0'
-                LOG.info(f"lProcessGroups #{i} chat_secret_key={bin_to_hex(chat_secret_key)}")
-                lIN[0].update({"Chat_secret_key": bin_to_hex(chat_secret_key)})
+            if keys is None:
+                LOG.warn(f"lProcessGroups #{i} keys is None")
+            else:
+                assert len(keys) == 4, keys
+                LOG.debug(f"lProcessGroups #{i} {repr(list(map(len, keys)))}")
+                chat_public_key, \
+                    chat_secret_key, \
+                    self_public_key, \
+                    self_secret_key = keys
+                LOG.info(f"lProcessGroups #{i} chat_public_key={bin_to_hex(chat_public_key)}")
+                lIN[0].update({"Chat_public_key": bin_to_hex(chat_public_key)})
+                if int(bin_to_hex(chat_secret_key), 16) != 0:
+                    # 192 * b'0'
+                    LOG.info(f"lProcessGroups #{i} chat_secret_key={bin_to_hex(chat_secret_key)}")
+                    lIN[0].update({"Chat_secret_key": bin_to_hex(chat_secret_key)})
 
-            LOG.info(f"lProcessGroups #{i} self_public_key={bin_to_hex(self_public_key)}")
-            lIN[0].update({"Self_public_key": bin_to_hex(self_public_key)})
-            LOG.info(f"lProcessGroups #{i} self_secret_key={bin_to_hex(self_secret_key)}")
-            lIN[0].update({"Self_secret_key": bin_to_hex(self_secret_key)})
+                LOG.info(f"lProcessGroups #{i} self_public_key={bin_to_hex(self_public_key)}")
+                lIN[0].update({"Self_public_key": bin_to_hex(self_public_key)})
+                LOG.info(f"lProcessGroups #{i} self_secret_key={bin_to_hex(self_secret_key)}")
+                lIN[0].update({"Self_secret_key": bin_to_hex(self_secret_key)})
 
-            assert len(self_info) == 4, self_info
-            self_nick_len, self_role, self_status, self_nick = self_info
-            self_nick = str(self_nick, sENC)
-            LOG.info(f"lProcessGroups #{i} self_nick={self_nick}")
-            dBINS = {"Self_nick": self_nick}
-            lIN += [{"Self_info": dBINS}]
+            if self_info is None:
+                LOG.warn(f"lProcessGroups #{i} self_info is None")
+            else:
+                assert len(self_info) == 4, self_info
+                self_nick_len, self_role, self_status, self_nick = self_info
+                self_nick = str(self_nick, sENC)
+                dBINS = {"Self_nick": self_nick,
+                         "Self_role": self_role,
+                         "Self_status": self_status,
+                         "Self_info": self_info,
+                         }
+                LOG.info(f"lProcessGroups #{i} {repr(dBINS)}")
+                lIN += [dBINS]
 
-            assert len(saved_peers) == 2, saved_peers
+            if saved_peers is None:
+                LOG.warn(f"lProcessGroups #{i} saved_peers is None")
+            else:
+                assert len(saved_peers) == 2, saved_peers
+            i += 1
 
     except Exception as e:
         LOG.warn(f"process_chunk Groups #{i} error={e}")
@@ -381,9 +409,9 @@ The Node Info data structure contains a Transport Protocol, a Socket
                  "Ip": ipaddr,
                  "Port": port,
                  "Pk": pk}]
+        relay += 1
         delta += total
         length -= total
-        relay += 1
     return lIN
 
 def lProcessDHTnodes(state, index, length, result, label="DHTnode"):
@@ -427,9 +455,9 @@ def lProcessDHTnodes(state, index, length, result, label="DHTnode"):
                 "Port": port,
                 "Pk": pk}]
             offset += subtotal
+            relay += 1
         delta += total
         length -= total
-        relay += 1
     return lIN
 
 def process_chunk(index, state, oArgs=None):
