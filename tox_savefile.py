@@ -7,14 +7,14 @@ Call it with one argument, the filename of the profile for the decrypt or info
 commands, or the filename of the nodes file for the nodes command.
 
 4 commands are supported:
---command decrypt
-  decrypts the profile and writes to the result to stdout
-
---command info
+--command info - default
   prints info about what's in the Tox profile to stderr
 
 --command nodes
   assumes you are reading a json nodes file instead of a profile
+
+--command decrypt
+  decrypts the profile and writes to the result to stdout
 
 --command edits
   edits fields in a Tox profile with --output to a file
@@ -22,7 +22,7 @@ commands, or the filename of the nodes file for the nodes command.
 """
 
 """
-  --output Destination for info/decrypt/edit/nodes/download
+  --output Destination for info/decrypt/edit/nodes
   --info default='info',
          choices=[info, save, repr, yaml,json, pprint]
          with --info=info prints info about the profile to stderr
@@ -42,7 +42,7 @@ commands, or the filename of the nodes file for the nodes command.
        download        - download nodes from --download_nodes_url
   --download_nodes_url https://nodes.tox.chat/json
 
-  --edit 
+  --edit
        help               - print a summary of what fields can be edited
       section,num,key,val - edit the field section,num,key with val
 
@@ -293,9 +293,17 @@ def lProcessGroups(state, index, length, result, label="GROUPS"):
                 LOG.warn(f"lProcessGroups #{i} topic_info is None")
             else:
                 assert len(topic_info) == 6, topic_info
-                topic_info_topic = str(topic_info[3], sENC)
+                version, \
+                  length, \
+                  checksum, \
+                  topic, \
+                  public_sig_key \
+                  topic_sig =  topic_info
+
+                topic_info_topic = str(topic, sENC)
                 LOG.info(f"lProcessGroups #{i} topic_info_topic={topic_info_topic}")
-                dBINS = {"topic_info_topic": topic_info_topic}
+                dBINS = {"Topic_info_topic": topic_info_topic
+                         }
                 lIN += [{"Topic_info": dBINS}]
 
             if mod_list is None:
@@ -485,9 +493,9 @@ def process_chunk(index, state, oArgs=None):
         nospam = bin_to_hex(result[0:4])
         public_key = bin_to_hex(result[4:36])
         private_key = bin_to_hex(result[36:68])
-        LOG.info(f"nospam = {nospam}")
-        LOG.info(f"public_key = {public_key}")
-        LOG.info(f"private_key = {private_key}")
+        LOG.info(f"{label} Nospam = {nospam}")
+        LOG.info(f"{label} Public_key = {public_key}")
+        LOG.info(f"{label} Private_key = {private_key}")
         aIN = {"Nospam": f"{nospam}",
                "Public_key": f"{public_key}",
                "Private_key": f"{private_key}"}
@@ -496,7 +504,7 @@ def process_chunk(index, state, oArgs=None):
             ## NOSPAMKEYS,.,Nospam,hexstr
             if key == "Nospam":
                 assert len(val) == 4*2, val
-                result = bytes.fromhex (val) +result[4:]                
+                result = bytes.fromhex (val) +result[4:]
                 LOG.info(f"{label} {key} EDITED to {val}")
             ## NOSPAMKEYS,.,Public_key,hexstr
             elif key == "Public_key":
@@ -508,7 +516,7 @@ def process_chunk(index, state, oArgs=None):
                 assert len(val) == 32 * 2, val
                 result = +result[0:36] +bytes.fromhex(val)
                 LOG.info(f"{label} {key} EDITED to {val}")
-                
+
     elif data_type == MESSENGER_STATE_TYPE_DHT:
         LOG.debug(f"process_chunk {label} length={length}")
         if length > 4:
@@ -749,65 +757,13 @@ def vSetupLogging(loglevel=logging.DEBUG):
     logging._defaultFormatter.default_time_format = '%m-%d %H:%M:%S'
     logging._defaultFormatter.default_msec_format = ''
 
-def oMainArgparser(_=None):
-    if not os.path.exists('/proc/sys/net/ipv6'):
-        bIpV6 = 'False'
-    else:
-        bIpV6 = 'True'
-    lIpV6Choices=[bIpV6, 'False']
+def iMain(sFile, oArgs):
+    global bOUT, aOUT, sENC
+    global bSAVE
 
-    parser = argparse.ArgumentParser(epilog=__doc__)
-    # list(dSTATE_TYPE.values())
-    # ['nospamkeys', 'dht', 'friends', 'name', 'statusmessage', 'status', 'groups', 'tcp_relay', 'path_node', 'conferences']
-
-    parser.add_argument('--output', type=str, default='',
-                        help='Destination for info/decrypt - defaults to stderr')
-    parser.add_argument('--command', type=str, default='info',
-                        choices=['info', 'decrypt', 'nodes', 'edit'],
-                        required=True,
-                        help='Action command - default: info')
-    #                         nargs='+',
-    parser.add_argument('--edit', type=str, default='',
-                        help='comma seperated SECTION,num,key,value - or help for ')
-    parser.add_argument('--indent', type=int, default=2,
-                        help='Indent for yaml/json/pprint')
-    choices=['info', 'save', 'repr', 'yaml','json', 'pprint']
-    if bHAVE_NMAP: choices += ['nmap_tcp', 'nmap_udp', 'nmap_onion']
-    parser.add_argument('--info', type=str, default='info',
-                        choices=choices,
-                        help='Format for info command')
-    choices = []
-    if bHAVE_JQ:
-        choices += ['select_tcp', 'select_udp', 'select_version']
-    if bHAVE_NMAP: choices += ['nmap_tcp', 'nmap_udp']
-    if download_url:
-        choices += ['download']
-    parser.add_argument('--nodes', type=str, default='',
-                        choices=choices,
-                        help='Action for nodes command (requires jq)')
-    parser.add_argument('--download_nodes_url', type=str,
-                        default='https://nodes.tox.chat/json')
-    parser.add_argument('--encoding', type=str, default=sENC)
-    parser.add_argument('profile', type=str, nargs='?', default=None,
-                        help='tox profile file - may be encrypted')
-    return parser
-
-if __name__ == '__main__':
-    lArgv = sys.argv[1:]
-    parser = oMainArgparser()
-    oArgs = parser.parse_args(lArgv)
-    if oArgs.command in ['edit'] and oArgs.edit == 'help':
-        l = list(dSTATE_TYPE.values())
-        l.remove('END')
-        print('Available Sections: ' +repr(l))
-        print('Supported Quads: section,num,key,type ' +sEDIT_HELP)
-        sys.exit(0)
-
-    sFile = oArgs.profile
     assert os.path.isfile(sFile), sFile
 
     sENC = oArgs.encoding
-    vSetupLogging()
 
     bSAVE = open(sFile, 'rb').read()
     if ToxEncryptSave and bSAVE[:8] == b'toxEsave':
@@ -836,7 +792,7 @@ if __name__ == '__main__':
             assert oArgs.output, "--output required for this command"
             assert bHAVE_JQ, "jq is required for this command"
             with open(oArgs.output, 'wt') as oFd:
-                oFd.write(json_head)                
+                oFd.write(json_head)
             cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_tcp)|select(.ipv4|match(\".\"))' "
             iRet = os.system(cmd +"| sed -e '2,$s/^{/,{/'" +f" >>{oArgs.output}")
             with open(oArgs.output, 'at') as oFd: oFd.write(']}\n')
@@ -845,7 +801,7 @@ if __name__ == '__main__':
             assert oArgs.output, "--output required for this command"
             assert bHAVE_JQ, "jq is required for this command"
             with open(oArgs.output, 'wt') as oFd:
-                oFd.write(json_head)                
+                oFd.write(json_head)
             cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.ipv4|match(\".\"))' "
             iRet = os.system(cmd +"| sed -e '2,$s/^{/,{/'" +f" >>{oArgs.output}")
             with open(oArgs.output, 'at') as oFd: oFd.write(']}\n')
@@ -854,9 +810,9 @@ if __name__ == '__main__':
             assert bHAVE_JQ, "jq is required for this command"
             assert oArgs.output, "--output required for this command"
             with open(oArgs.output, 'wt') as oFd:
-                oFd.write(json_head)                
-            cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.version|match(\"{sTOX_VERSION}\"))'" 
-                
+                oFd.write(json_head)
+            cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.version|match(\"{sTOX_VERSION}\"))'"
+
             iRet = os.system(cmd +"| sed -e '2,$s/^{/,{/'" +f" >>{oArgs.output}")
             with open(oArgs.output, 'at') as oFd:
                 oFd.write(']}\n')
@@ -962,5 +918,62 @@ if __name__ == '__main__':
 
     if oStream and oStream != sys.stdout and oStream != sys.stderr:
         oStream.close()
+
+def oMainArgparser(_=None):
+    if not os.path.exists('/proc/sys/net/ipv6'):
+        bIpV6 = 'False'
+    else:
+        bIpV6 = 'True'
+    lIpV6Choices=[bIpV6, 'False']
+
+    parser = argparse.ArgumentParser(epilog=__doc__)
+    # list(dSTATE_TYPE.values())
+    # ['nospamkeys', 'dht', 'friends', 'name', 'statusmessage', 'status', 'groups', 'tcp_relay', 'path_node', 'conferences']
+
+    parser.add_argument('--output', type=str, default='',
+                        help='Destination for info/decrypt - defaults to stderr')
+    parser.add_argument('--command', type=str, default='info',
+                        choices=['info', 'decrypt', 'nodes', 'edit'],
+                        help='Action command - default: info')
+    #                         nargs='+',
+    parser.add_argument('--edit', type=str, default='',
+                        help='comma seperated SECTION,num,key,value - or help for ')
+    parser.add_argument('--indent', type=int, default=2,
+                        help='Indent for yaml/json/pprint')
+    choices=['info', 'save', 'repr', 'yaml','json', 'pprint']
+    if bHAVE_NMAP: choices += ['nmap_tcp', 'nmap_udp', 'nmap_onion']
+    parser.add_argument('--info', type=str, default='info',
+                        choices=choices,
+                        help='Format for info command')
+    choices = []
+    if bHAVE_JQ:
+        choices += ['select_tcp', 'select_udp', 'select_version']
+    if bHAVE_NMAP: choices += ['nmap_tcp', 'nmap_udp']
+    if download_url:
+        choices += ['download']
+    parser.add_argument('--nodes', type=str, default='',
+                        choices=choices,
+                        help='Action for nodes command (requires jq)')
+    parser.add_argument('--download_nodes_url', type=str,
+                        default='https://nodes.tox.chat/json')
+    parser.add_argument('--encoding', type=str, default=sENC)
+    parser.add_argument('profile', type=str, nargs='+', default=None,
+                        help='tox profile file - may be encrypted')
+    return parser
+
+if __name__ == '__main__':
+    lArgv = sys.argv[1:]
+    parser = oMainArgparser()
+    oArgs = parser.parse_args(lArgv)
+    if oArgs.command in ['edit'] and oArgs.edit == 'help':
+        l = list(dSTATE_TYPE.values())
+        l.remove('END')
+        print('Available Sections: ' +repr(l))
+        print('Supported Quads: section,num,key,type ' +sEDIT_HELP)
+        sys.exit(0)
+
+    vSetupLogging()
+    for sFile in oArgs.profile:
+        iMain(sFile, oArgs)
 
     sys.exit(0)
