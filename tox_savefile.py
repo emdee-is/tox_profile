@@ -297,8 +297,8 @@ def lProcessGroups(state, index, length, result, label="GROUPS"):
                   length, \
                   checksum, \
                   topic, \
-                  public_sig_key \
-                  topic_sig =  topic_info
+                  public_sig_key, \
+                  topic_sig = topic_info
 
                 topic_info_topic = str(topic, sENC)
                 LOG.info(f"lProcessGroups #{i} topic_info_topic={topic_info_topic}")
