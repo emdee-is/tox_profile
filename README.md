@@ -163,6 +163,10 @@ required. It's available in most distros, or <https://stedolan.github.io/jq/>
 For the ```nmap``` commands, the ```nmap``` utility is
 required. It's available in most distros, or <https://nmap.org/>
 
+## Issues
+
+https://git.macaw.me/emdee/tox_profile/issues
+
 ## Future Directions
 
 This has not been tested on Windwoes, but is should be simple to fix.
