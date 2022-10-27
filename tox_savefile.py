@@ -33,13 +33,14 @@ commands, or the filename of the nodes file for the nodes command.
   --indent for pprint/yaml/json default=2
 
   --nodes
-       choices=[select_tcp, select_udp, nmap_tcp, select_version, nmap_udp]
+       choices=[select_tcp, select_udp, nmap_tcp, select_version, nmap_udp, check, download]
        select_udp      - select udp nodes
        select_tcp      - select tcp nodes
        nmap_udp        - test UDP nodes with nmap
        nmap_tcp        - test TCP nodes with nmap
        select_version  - select nodes that are the latest version
        download        - download nodes from --download_nodes_url
+       check           - check nodes from --download_nodes_url
   --download_nodes_url https://nodes.tox.chat/json
 
   --edit
@@ -61,6 +62,7 @@ import logging
 import argparse
 from pprint import pprint
 import shutil
+import json
 
 try:
     # https://pypi.org/project/msgpack/
@@ -72,10 +74,6 @@ try:
 except ImportError as e:
     yaml = None
 try:
-    import json
-except ImportError as e:
-    json = None
-try:
     # https://pypi.org/project/coloredlogs/
     import coloredlogs
     if 'COLOREDLOGS_LEVEL_STYLES' not in os.environ:
@@ -86,8 +84,9 @@ try:
     # https://git.plastiras.org/emdee/toxygen_wrapper
     from wrapper.toxencryptsave import ToxEncryptSave
     from wrapper_tests.support_http import download_url, bAreWeConnected
+    from wrapper_tests.support_testing import sTorResolve
 except ImportError as e:
-    print(f"Import Error {e}")
+    print(f"Import Warning {e}")
     print("Download toxygen_wrapper to deal with encrypted tox files, from:")
     print("https://git.plastiras.org/emdee/toxygen_wrapper")
     print("Just put the parent of the wrapper directory on your PYTHONPATH")
@@ -96,13 +95,20 @@ except ImportError as e:
     print("Link all 3 from libtoxcore.so if you have only libtoxcore.so")
     ToxEncryptSave = None
     download_url = None
-
+    bAreWeConnected = None
+    sTorResolve = None
+    
 LOG = logging.getLogger('TSF')
 
 # Fix for Windows
 sDIR = os.environ.get('TMPDIR', '/tmp')
 sTOX_VERSION = "1000002018"
+sVER_WANT = "1000002018"
+# 3 months
+iOLD_SECS = 60*60*24*30*3
+
 bHAVE_NMAP = shutil.which('nmap')
+bHAVE_TOR = shutil.which('tor')
 bHAVE_JQ = shutil.which('jq')
 bHAVE_BASH = shutil.which('bash')
 bMARK = b'\x00\x00\x00\x00\x1f\x1b\xed\x15'
@@ -716,6 +722,142 @@ def vBashFileNmapUdp():
         os.chmod(sFile, 0o0775)
     return sFile
 
+sBLURB = """
+I see you have a torrc. You can help the network by running a bootstrap daemon
+as a hidden service, or even using the --tcp_server option of your client.
+"""
+
+def iNodesCheckNodes(json_nodes, oArgs):
+    """
+    Checking NODES.json
+    """
+    iWarns = 0
+    iErrs = 0
+    # assert type(json_nodes) == dict
+    for node in json_nodes:
+        for ipv in ['ipv4','ipv6']:
+            if not node[ipv] in lNULLS:
+                LOG.info(f"Checking {node[ipv]}")
+            for fam in ["status_tcp", "status_udp"]:
+                if node[ipv] in lNULLS \
+                  and node[fam] in [True, "true"]:
+                    LOG.warn(f"{ipv} {node[ipv]} in [-, 'NONE'] but node[{fam}] is true")
+            if bHAVE_NMAP and bAreWeConnected and bAreWeConnected() \
+                and not node[ipv] in lNULLS:
+                # nmap test the ipv4/ipv6
+                lElts = [[node[host], node[port], node[key]]]
+                ts.bootstrap_iNmapInfo(lElts, oArgs, bIS_LOCAL=False, iNODES=2)
+
+        if node['ipv4'] in lNULLS and node['ipv6'] in lNULLS and \
+           not node['tcp_ports'] and not '.onion' in node['location']:
+               LOG.warn("No ports to contact the daemon on")
+
+        if node["version"] < "1000002013":
+            iErrs += 1
+            LOG.error(f"vulnerable version {node['version']} < 1000002013")
+        elif node["version"] < sVER_WANT:
+            LOG.warn(f"outdated version {node['version']} < {sVER_WANT}")
+
+        # Put the onion address in the location after the country code
+        if len(node["location"]) not in [2, 65]:
+            LOG.warn(f"location {location} should be a 2 digit country code, or 'code onion'")
+        elif len(node["location"]) == 65 and \
+             not node["location"].endswith('.onion') :
+            LOG.warn(f"location {location} should be a 2 digit country code 'code onion'")
+        elif len(node["location"]) == 65 and \
+                node["location"].endswith('.onion') and bHAVE_TOR:
+            onion = node["location"][3:]
+            if bHAVE_TOR and bAreWeConnected and bAreWeConnected() \
+               and (not node[ipv] in lNULLS and
+                    not node[ipv] in lNULLS ):
+                # torresolve the onion
+                # Fixme - see if tor is running
+                try:
+                    s = sTorResolve(onion,
+                                    verbose=False,
+                                    sHost='127.0.0.1',
+                                    iPort=9050)
+                except:
+                    # assume tor isnt running
+                    pass
+                else:
+                    if s:
+                        LOG.info(f"Found an onion that resolves to {s}")
+                    else:
+                        LOG.warn(f"Found an onion that resolves to {s}")
+
+        if node['last_ping'] == 0:
+            iErrs += 1
+            LOG.error(f"node has never been pinged")
+        elif time.time() - node['last_ping'] > iOLD_SECS:
+            LOG.error(f"node has not been pinged in more than 3 months")
+            
+        # suggestions YMMV
+        if str(node['port']).startswith('3344'):
+            LOG.debug(f"Maybe run on a non-standard port to resist blocking {node['port']}")
+           
+        if node['tcp_ports']:
+            for port in node['tcp_ports']:
+                if str(port).startswith('3344') or port in [33445, 3389]:
+                    LOG.debug(f"Maybe run tcp_ports on a non-standard port to resist blocking: {node['port']}")
+
+        if len(node['maintainer']) < 75 and len(node['motd']) < 75:
+            LOG.debug(f"Maybe add a ToxID: in the motd so people can contact you.")
+        elif len(node['maintainer']) > 75 and len(node['motd']) < 75:
+            LOG.debug(f"Maybe put the ToxID: in motd so people can contact you.")
+        elif len(node['maintainer']) > 0 and len(node['motd']) < 1:
+            LOG.debug(f"Maybe put a ToxID: in motd so people can contact you.")
+
+    # fixme  look for /etc/tor/torrc but it may not be readable
+    if bHAVE_TOR and os.path.exists('/etc/tor/torrc'):
+         print(sBLURB)
+    return iErrs
+
+def iNodesFileCheck(sProOrNodes):
+    try:
+        if not os.path.exists(sProOrNodes):
+            raise RuntimeError("iNodesFileCheck file not found " +sProOrNodes)
+        with open(sProOrNodes, 'rt') as fl:
+            json_nodes = json.loads(fl.read())['nodes']
+    except Exception as e:
+        LOG.exception(f"{oArgs.command} error reading {sProOrNodes}")
+        return 1
+
+    LOG.info(f"iNodesFileCheck checking JSON")
+    i = 0
+    try:
+        i = iNodesCheckNodes(json_nodes, oArgs)
+    except Exception as e:
+        LOG.exception(f"iNodesFileCheck error checking JSON")
+        i = -2
+    else:
+        if i:
+            LOG.error(f"iNodesFileCheck {i} errors in {sProOrNodes}")
+        else:
+            LOG.info(f"iNodesFileCheck NO errors in {sProOrNodes}")
+    return i
+
+def iNodesFileClean(sProOrNodes):
+    # unused
+    return 0
+    f = "DHTNodes.clean"
+    if not oArgs.output:
+        sOut = os.path.join(sDIR, f)
+    else:
+        sOut = oArgs.output
+        
+    try:
+        LOG.debug(f"iNodesFileClean saving to {sOut}")
+        oStream = open(sOut, 'wt', encoding=sENC)
+        json.dump(aOUT, oStream, indent=oArgs.indent)
+        if oStream.write('\n') > 0: iRet = 0
+    except Exception as e:
+        LOG.exception(f"iNodesFileClean error dumping JSON to {sOUT}")
+        return 3
+
+    LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
+    return 0
+
 def vOsSystemNmapUdp(l, oArgs):
     iErrs = 0
     for elt in aOUT["DHT"]:
@@ -757,20 +899,20 @@ def vSetupLogging(loglevel=logging.DEBUG):
     logging._defaultFormatter.default_time_format = '%m-%d %H:%M:%S'
     logging._defaultFormatter.default_msec_format = ''
 
-def iMain(sFile, oArgs):
+def iMain(sProOrNodes, oArgs):
     global bOUT, aOUT, sENC
     global bSAVE
 
-    assert os.path.isfile(sFile), sFile
+    assert os.path.isfile(sProOrNodes), sProOrNodes
 
     sENC = oArgs.encoding
 
-    bSAVE = open(sFile, 'rb').read()
+    bSAVE = open(sProOrNodes, 'rb').read()
     if ToxEncryptSave and bSAVE[:8] == b'toxEsave':
         try:
             bSAVE = decrypt_data(bSAVE)
         except Exception as e:
-            LOG.error(f"decrypting {sFile} - {e}")
+            LOG.error(f"decrypting {sProOrNodes} - {e}")
             sys.exit(1)
     assert bSAVE
 
@@ -793,7 +935,7 @@ def iMain(sFile, oArgs):
             assert bHAVE_JQ, "jq is required for this command"
             with open(oArgs.output, 'wt') as oFd:
                 oFd.write(json_head)
-            cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_tcp)|select(.ipv4|match(\".\"))' "
+            cmd = f"cat '{sProOrNodes}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_tcp)|select(.ipv4|match(\".\"))' "
             iRet = os.system(cmd +"| sed -e '2,$s/^{/,{/'" +f" >>{oArgs.output}")
             with open(oArgs.output, 'at') as oFd: oFd.write(']}\n')
 
@@ -802,7 +944,7 @@ def iMain(sFile, oArgs):
             assert bHAVE_JQ, "jq is required for this command"
             with open(oArgs.output, 'wt') as oFd:
                 oFd.write(json_head)
-            cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.ipv4|match(\".\"))' "
+            cmd = f"cat '{sProOrNodes}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.ipv4|match(\".\"))' "
             iRet = os.system(cmd +"| sed -e '2,$s/^{/,{/'" +f" >>{oArgs.output}")
             with open(oArgs.output, 'at') as oFd: oFd.write(']}\n')
 
@@ -811,7 +953,7 @@ def iMain(sFile, oArgs):
             assert oArgs.output, "--output required for this command"
             with open(oArgs.output, 'wt') as oFd:
                 oFd.write(json_head)
-            cmd = f"cat '{sFile}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.version|match(\"{sTOX_VERSION}\"))'"
+            cmd = f"cat '{sProOrNodes}' | jq '.|with_entries(select(.key|match(\"nodes\"))).nodes[]|select(.status_udp)|select(.version|match(\"{sTOX_VERSION}\"))'"
 
             iRet = os.system(cmd +"| sed -e '2,$s/^{/,{/'" +f" >>{oArgs.output}")
             with open(oArgs.output, 'at') as oFd:
@@ -822,14 +964,14 @@ def iMain(sFile, oArgs):
             if not bAreWeConnected():
                 LOG.warn(f"{oArgs.nodes} we are not connected")
             cmd = vBashFileNmapTcp()
-            iRet = os.system(f"bash {cmd} < '{sFile}'" +f" >'{oArgs.output}'")
+            iRet = os.system(f"bash {cmd} < '{sProOrNodes}'" +f" >'{oArgs.output}'")
 
         elif oArgs.nodes == 'nmap_udp':
             assert oArgs.output, "--output required for this command"
             if not bAreWeConnected():
                 LOG.warn(f"{oArgs.nodes} we are not connected")
             cmd = vBashFileNmapUdp()
-            iRet = os.system(f"bash {cmd} < '{sFile}'" +f" >'{oArgs.output}'")
+            iRet = os.system(f"bash {cmd} < '{sProOrNodes}'" +f" >'{oArgs.output}'")
 
         elif oArgs.nodes == 'download' and download_url:
             if not bAreWeConnected():
@@ -848,7 +990,11 @@ def iMain(sFile, oArgs):
                     oStream.write(str(b, sENC))
                 iRet = -1
                 LOG.info(f"downloaded list of nodes to {oStream}")
-
+                
+        elif oArgs.nodes == 'check':
+            i = iNodesFileCheck(sProOrNodes)
+            return i
+        
         if iRet > 0:
             LOG.warn(f"{oArgs.nodes} iRet={iRet} to {oArgs.output}")
         elif iRet == 0:
@@ -945,7 +1091,7 @@ def oMainArgparser(_=None):
     parser.add_argument('--info', type=str, default='info',
                         choices=choices,
                         help='Format for info command')
-    choices = []
+    choices = ['check']
     if bHAVE_JQ:
         choices += ['select_tcp', 'select_udp', 'select_version']
     if bHAVE_NMAP: choices += ['nmap_tcp', 'nmap_udp']
@@ -957,8 +1103,8 @@ def oMainArgparser(_=None):
     parser.add_argument('--download_nodes_url', type=str,
                         default='https://nodes.tox.chat/json')
     parser.add_argument('--encoding', type=str, default=sENC)
-    parser.add_argument('profile', type=str, nargs='+', default=None,
-                        help='tox profile file - may be encrypted')
+    parser.add_argument('lprofile', type=str, nargs='+', default=None,
+                        help='tox profile files - may be encrypted')
     return parser
 
 if __name__ == '__main__':
@@ -973,7 +1119,8 @@ if __name__ == '__main__':
         sys.exit(0)
 
     vSetupLogging()
-    for sFile in oArgs.profile:
-        iMain(sFile, oArgs)
+    i = 0
+    for sProOrNodes in oArgs.lprofile:
+        i = iMain(sProOrNodes, oArgs)
 
-    sys.exit(0)
+    sys.exit(i)

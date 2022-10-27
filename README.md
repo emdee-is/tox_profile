@@ -34,7 +34,7 @@ usage: tox_savefile.py [-h]
                                [--command info|decrypt|nodes|edit]
                                [--info info|repr|yaml|json|pprint|nmap_udp|nmap_tcp]
                                [--indent INDENT]
-                               [--nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp,download]
+                               [--nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp|download|check]
                                [--download_nodes_url DOWNLOAD_NODES_URL]
 			       [--edit help|section,num,key,val]
  			       [--output OUTPUT]
@@ -165,7 +165,7 @@ required. It's available in most distros, or <https://nmap.org/>
 
 ## Issues
 
-https://git.macaw.me/emdee/tox_profile/issues
+https://git.plastiras.org/emdee/tox_profile/issues
 
 ## Future Directions
 
@@ -179,3 +179,6 @@ supporting multidevices:
 
 There is a copy of the Tox [spec](https://toktok.ltd/spec.html)
 in the repo - it is missing any description of the groups section.
+
+Work on this project is suspended until the
+[MultiDevice](https://git.plastiras.org/emdee/tox_profile/wiki/MultiDevice-Announcements-POC) problem is solved. Fork me!

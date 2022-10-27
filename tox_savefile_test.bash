@@ -3,7 +3,7 @@
 
 # tox_savefile.py has a lot of features so it needs test coverage
 
-PREFIX=/o/var/local/src
+PREFIX=/mnt/o/var/local/src
 EXE=python3.sh
 WRAPPER=$PREFIX/toxygen_wrapper
 
