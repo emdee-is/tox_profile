@@ -19,6 +19,9 @@ commands, or the filename of the nodes file for the nodes command.
 --command edits
   edits fields in a Tox profile with --output to a file
 
+--command onions
+  cleans or checks a /etc/tor/torrc file with --output to a file
+
 """
 
 """
@@ -48,6 +51,9 @@ commands, or the filename of the nodes file for the nodes command.
        help               - print a summary of what fields can be edited
       section,num,key,val - edit the field section,num,key with val
 
+  --onions             experimental
+       config             - check your /etc/tor/torrc configuration
+       test               - test your /etc/tor/torrc configuration
 
 """
 
@@ -140,6 +146,34 @@ DHT,.,DHTnode,
 TCP_RELAY,.,TCPnode,
 PATH_NODE,.,PATHnode,
 """
+# a dictionary of sets of lines
+lONION_CONFIG = {"hsconfig": [
+        '# Tox hidden service configuration.',
+        'HiddenServiceDir /var/lib/tor/tox-hsv3',
+        'HiddenServicePort 33446 127.0.0.1:33446',
+    ],
+     "vadr": [
+         'VirtualAddrNetworkIPv4 172.16.0.0/12',
+         'AutomapHostsSuffixes .exit,.onion',
+     ],
+     "mapaddress": []
+     }
+
+
+lONION_NODES = [
+    dict(maintainer="Tha_14",
+         public_key="8E8B63299B3D520FB377FE5100E65E3322F7AE5B20A0ACED2981769FC5B43725",
+         motd="Add me on Tox: F0AA7C8C55552E8593B2B77AC6FCA598A40D1F5F52A26C2322690A4BF1DFCB0DD8AEDD2822FF",
+         onions=[
+             "h5g52d26mmi67pzzln2uya5msfzjdewengefaj75diipeskoo252lnqd.onion:33446"],
+         ),
+    dict(motd="Emdee",
+         public_key= "EC8F7405F79F281569B6C66D9F03490973AB99BC9175C44FBEF4C3428A63B80D",
+         onions=[
+              "l2ct3xnuaiwwtoybtn46qp2av4ndxcguwupzyv6xrsmnwi647vvmwtqd.onion:33446",
+              ]
+      ),
+]
 
 #messenger.c
 MESSENGER_STATE_TYPE_NOSPAMKEYS = 1
@@ -761,7 +795,8 @@ def lNodesCheckNodes(json_nodes, oArgs, bClean=False):
         iRet = os.system("netstat -nle4|grep -q :9050")
         if iRet == 0:
             bRUNNING_TOR = True
-            
+
+    lOnions = []
     for node in json_nodes:
         # new fields:
         if bClean:
@@ -773,12 +808,23 @@ def lNodesCheckNodes(json_nodes, oArgs, bClean=False):
                     new_node[key] = val
             if 'onions' not in new_node:
                 new_node['onions'] = []
-            
+                for elt in lONION_NODES:
+                    if node['public_key'] == elt['public_key']:
+                        new_node['onions'].extend(elt['onions'])
+                        break
+                else:
+                    # add to nodes
+                    pass
+            else:
+                for keypair in node['onions']:
+                    s = keypair.split(':')[0]
+                    lOnions.append(s)
+                    
         for ipv in ['ipv4','ipv6']:
             for fam in ["status_tcp", "status_udp"]:
                 if node[ipv] in lNONES \
                   and node[fam] in [True, "true"]:
-                    LOG.warn(f"{ipv} {node[ipv]} in [-, 'NONE'] but node[{fam}] is true")
+                    LOG.debug(f"{ipv} {node[ipv]} but node[{fam}] is true")
             bLinux = os.path.exists('/proc')
             if bLinux and not os.path.exists(f"/proc/sys/net/{ipv}/"):
                 continue
@@ -845,8 +891,10 @@ def lNodesCheckNodes(json_nodes, oArgs, bClean=False):
 
         if len(node['maintainer']) > 75 and len(node['motd']) < 75:
             pass
-            # look for onion LOG.debug(f"Maybe put a ToxID: in motd so people can contact you.")
-
+            # look for onion 
+        if not node['motd']:
+            # LOG.info(f"Maybe put a ToxID: in motd so people can contact you.")
+            pass
         if bClean and not nth in lErrs:
             lNew+=[new_node]
         nth += 1
@@ -854,7 +902,17 @@ def lNodesCheckNodes(json_nodes, oArgs, bClean=False):
     # fixme  look for /etc/tor/torrc but it may not be readable
     if bHAVE_TOR and os.path.exists('/etc/tor/torrc'):
         # print(sBLURB)
-        pass
+        LOG.info("Add this section to your /etc/tor/torrc")
+        for line in lONION_CONFIG['vadr']:
+            print(line)
+        if lOnions:
+            LOG.info("Add this section to your /etc/tor/torrc")
+            i = 1
+            for line in lOnions:
+                hosts = line.split(':')
+                print(f"MapAddress {hosts[0]} 172.16.1.{i}")
+                i += 1
+
     if bClean:
         return lNew
     else:
@@ -975,6 +1033,49 @@ def vSetupLogging(loglevel=logging.DEBUG):
     logging._defaultFormatter.default_time_format = '%m-%d %H:%M:%S'
     logging._defaultFormatter.default_msec_format = ''
 
+def iTestTorConfig(sProOrNodes, oArgs, bClean=False):
+    # add_onion
+    LOG.info(f"iTestTorConfig {sProOrNodes}")
+    lEtcTorrc = open(sProOrNodes, 'rt').readlines()
+    if bClean == False:
+        LOG.info(f"Add these lines to {sProOrNodes}")
+        for key,val in lONION_CONFIG.items():
+            for line in val:
+                if line.startswith('#'): continue
+                if not line in lEtcTorrc:
+                    print(line)
+    # add_mapaddress
+    if bClean == False:
+        LOG.info(f"Add these lines to {sProOrNodes}")
+        i=1
+        for elt in lONION_NODES:
+            for line in elt['onions']:
+                host,port = line.split(':')
+                print(f"MapAddress {host} 172.16.1.{i}")
+                i += 1
+
+    # add_bootstrap
+    return 0
+
+def iTestTorTest(sProOrNodes, oArgs, bClean=False):
+    # test_onion
+    # check_mapaddress
+    # check_bootstrap
+    LOG.info(f"iTestTorTest {sProOrNodes}")
+    for elt in lONION_NODES:
+        for line in elt['onions']:
+            host,port = line.split(':')
+            LOG.debug(f"iTestTorTest resolving {host}")
+            ip = ts.sTorResolve(host)
+            if ip: LOG.info(f"{host} resolved to {ip}")
+            
+    # test debian
+    # http://5ekxbftvqg26oir5wle3p27ax3wksbxcecnm6oemju7bjra2pn26s3qd.onion/
+    return 0
+
+def iTestOnionNodes():
+    return 0
+
 def iMain(sProOrNodes, oArgs):
     global bOUT, aOUT, sENC
     global bSAVE
@@ -994,6 +1095,7 @@ def iMain(sProOrNodes, oArgs):
     LOG.debug(f"{oArgs.command} {len(bSAVE)} bytes")
 
     oStream = None
+    LOG.info(f"Running {oArgs.command}")
     if oArgs.command == 'decrypt':
         assert oArgs.output, "--output required for this command"
         oStream = open(oArgs.output, 'wb')
@@ -1102,10 +1204,24 @@ def iMain(sProOrNodes, oArgs):
         elif iRet == 0:
             LOG.info(f"{oArgs.nodes} iRet={iRet} to {oArgs.output}")
 
+    elif oArgs.command == 'onions':
+
+        LOG.info(f"{oArgs.command} {oArgs.onions} {oArgs.output}")
+
+        if oArgs.onions == 'config':
+            i = iTestTorConfig(sProOrNodes, oArgs)
+            iRet = i
+
+        elif oArgs.onions == 'test':
+            i = iTestTorTest(sProOrNodes, oArgs)
+            iRet = i
+    
     elif oArgs.command in ['info', 'edit']:
+
         if oArgs.command in ['edit']:
             assert oArgs.output, "--output required for this command"
             assert oArgs.edit != '', "--edit required for this command"
+
         elif oArgs.command == 'info':
             # assert oArgs.info != '', "--info required for this command"
             if oArgs.info in ['save', 'yaml', 'json', 'repr', 'pprint']:
@@ -1205,6 +1321,9 @@ def iMain(sProOrNodes, oArgs):
                     LOG.warn(f"{oArgs.info} no PATH_NODE")
                     iRet = 0
 
+    else:
+        LOG.warn(f"{oArgs.command} UNREGOGNIZED")
+
     if oStream and oStream != sys.stdout and oStream != sys.stderr:
         oStream.close()
     return iRet
@@ -1223,7 +1342,7 @@ def oMainArgparser(_=None):
     parser.add_argument('--output', type=str, default='',
                         help='Destination for info/decrypt - defaults to stderr')
     parser.add_argument('--command', type=str, default='info',
-                        choices=['info', 'decrypt', 'nodes', 'edit'],
+                        choices=['info', 'decrypt', 'nodes', 'edit', 'onions'],
                         help='Action command - default: info')
     #                         nargs='+',
     parser.add_argument('--edit', type=str, default='',
@@ -1250,9 +1369,14 @@ def oMainArgparser(_=None):
                         help='Action for nodes command (requires jq)')
     parser.add_argument('--download_nodes_url', type=str,
                         default='https://nodes.tox.chat/json')
+    parser.add_argument('--onions', type=str, default='',
+                        choices=['config', 'test'] if bHAVE_TOR else [],
+                        help='Action for onion command (requires tor)')
+
     parser.add_argument('--encoding', type=str, default=sENC)
     parser.add_argument('lprofile', type=str, nargs='+', default=None,
                         help='tox profile files - may be encrypted')
+    parser.add_argument('--log_level', type=int, default=10)
 
     parser.add_argument('--proxy_host', '--proxy-host', type=str,
                         default='',
@@ -1276,7 +1400,7 @@ if __name__ == '__main__':
         print('Supported Quads: section,num,key,type ' +sEDIT_HELP)
         sys.exit(0)
 
-    vSetupLogging()
+    vSetupLogging(oArgs.log_level)
     i = 0
     for sProOrNodes in oArgs.lprofile:
         i = iMain(sProOrNodes, oArgs)

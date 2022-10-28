@@ -34,7 +34,7 @@ to a file.
 
 ```
 usage: tox_profile.py [-h]
-       [--command info|decrypt|nodes|edit]
+       [--command info|decrypt|nodes|edit|onions]
        [--info info|repr|yaml|json|pprint|nmap_dht|nmap_relay]
        [--indent INDENT]
        [--nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp|download|check|clean]
