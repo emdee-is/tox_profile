@@ -89,6 +89,7 @@ try:
     from wrapper.toxencryptsave import ToxEncryptSave
     from wrapper_tests.support_http import download_url, bAreWeConnected
     from wrapper_tests.support_testing import sTorResolve
+    from wrapper_tests import support_testing as ts
 except ImportError as e:
     print(f"Import Warning {e}")
     print("Download toxygen_wrapper to deal with encrypted tox files, from:")
@@ -101,6 +102,7 @@ except ImportError as e:
     download_url = None
     bAreWeConnected = None
     sTorResolve = None
+    ts = None
     
 LOG = logging.getLogger('TSF')
 
@@ -125,6 +127,7 @@ aOUT = {}
 bOUT = b''
 sENC = sys.getdefaultencoding() # 'utf-8'
 lNULLS = ['', '[]', 'null']
+lNONES = ['', '-',  'NONE']
 # grep '#''#' logging_tox_savefile.py|sed -e 's/.* //'
 sEDIT_HELP = """
 NAME,.,Nick_name,str
@@ -734,7 +737,8 @@ def lParseNapOutput(sFile):
     for sLine in open(sFile, 'rt').readlines():
         if sLine.startswith('Failed to resolve ') or \
            'Temporary failure in name resolution' in sLine or \
-           '/udp closed' in sLine '/tcp closed' in sLine:
+           '/udp closed' in sLine or \
+           '/tcp closed' in sLine:
             lRet += [sLine]
     return lRet
 
@@ -752,11 +756,17 @@ def lNodesCheckNodes(json_nodes, oArgs, bClean=False):
     nth = 0
     if bClean: lNew=[]
     # assert type(json_nodes) == dict
+    bRUNNING_TOR = False
+    if bHAVE_TOR:
+        iRet = os.system("netstat -nle4|grep -q :9050")
+        if iRet == 0:
+            bRUNNING_TOR = True
+            
     for node in json_nodes:
         # new fields:
         if bClean:
             new_node = {}
-            for key,val in node:
+            for key,val in node.items():
                 if type(val) == bytes:
                     new_node[key] = str(val, 'UTF-8')
                 else:
@@ -765,19 +775,21 @@ def lNodesCheckNodes(json_nodes, oArgs, bClean=False):
                 new_node['onions'] = []
             
         for ipv in ['ipv4','ipv6']:
-            if not node[ipv] in lNULLS:
+            if not node[ipv] in lNONES:
                 LOG.info(f"Checking {node[ipv]}")
             for fam in ["status_tcp", "status_udp"]:
-                if node[ipv] in lNULLS \
+                if node[ipv] in lNONES \
                   and node[fam] in [True, "true"]:
                     LOG.warn(f"{ipv} {node[ipv]} in [-, 'NONE'] but node[{fam}] is true")
-            if bHAVE_NMAP and bAreWeConnected and bAreWeConnected() \
-                and not node[ipv] in lNULLS:
+            if bHAVE_NMAP and bAreWeConnected and ts \
+               and not bRUNNING_TOR \
+               and not node[ipv] in lNONES:
                 # nmap test the ipv4/ipv6
-                lElts = [[node[host], node[port], node[key]]]
-                ts.bootstrap_iNmapInfo(lElts, oArgs, bIS_LOCAL=False, iNODES=2)
+                lElts = [[node[ipv], node['port'], node['public_key']]]
+                ts.bootstrap_iNmapInfo(lElts, oArgs, bIS_LOCAL=False,
+                                       iNODES=2, nmap=oArgs.nmap_cmd)
 
-        if node['ipv4'] in lNULLS and node['ipv6'] in lNULLS and \
+        if node['ipv4'] in lNONES and node['ipv6'] in lNONES and \
            not node['tcp_ports'] and not '.onion' in node['location']:
                LOG.warn("No ports to contact the daemon on")
 
@@ -797,8 +809,8 @@ def lNodesCheckNodes(json_nodes, oArgs, bClean=False):
                 node["location"].endswith('.onion') and bHAVE_TOR:
             onion = node["location"][3:]
             if bHAVE_TOR and bAreWeConnected and bAreWeConnected() \
-               and (not node[ipv] in lNULLS and
-                    not node[ipv] in lNULLS ):
+               and (not node[ipv] in lNONES and
+                    not node[ipv] in lNONES ):
                 # torresolve the onion
                 # Fixme - see if tor is running
                 try:
@@ -830,7 +842,8 @@ def lNodesCheckNodes(json_nodes, oArgs, bClean=False):
         
     # fixme  look for /etc/tor/torrc but it may not be readable
     if bHAVE_TOR and os.path.exists('/etc/tor/torrc'):
-         print(sBLURB)
+        # print(sBLURB)
+        pass
     if bClean:
         return lNew
     else:
@@ -1018,7 +1031,7 @@ def iMain(sProOrNodes, oArgs):
                 LOG.warn(f"{oArgs.nodes} we are not connected")
             else:
                 cmd = sBashFileNmapTcp()
-                cmd = f"bash {cmd} < '{sProOrNodes}' >'{oArgs.output}' 2>&1"
+                cmd = f"sudo bash {cmd} < '{sProOrNodes}' >'{oArgs.output}' 2>&1"
                 LOG.debug(cmd)
                 iRet = os.system(cmd)
                 if iRet == 0:
@@ -1035,7 +1048,7 @@ def iMain(sProOrNodes, oArgs):
             elif bHAVE_TOR:
                 LOG.warn(f"{oArgs.nodes} this wont work behind tor")
             cmd = vBashFileNmapUdp()
-            cmd = f"bash {cmd} < '{sProOrNodes}'" +f" >'{oArgs.output}' 2>&1"
+            cmd = f"sudo bash {cmd} < '{sProOrNodes}'" +f" >'{oArgs.output}' 2>&1"
             LOG.debug(cmd)
             iRet = os.system(cmd)
             if iRet == 0:
@@ -1218,6 +1231,9 @@ def oMainArgparser(_=None):
     if bHAVE_NMAP: choices += ['nmap_tcp', 'nmap_udp']
     if download_url:
         choices += ['download']
+    # behind tor you may need 'sudo -u debian-tor nmap'
+    parser.add_argument('--nmap_cmd', type=str, default='nmap',
+                        help="the command to run nmap")        
     parser.add_argument('--nodes', type=str, default='',
                         choices=choices,
                         help='Action for nodes command (requires jq)')
@@ -1226,6 +1242,16 @@ def oMainArgparser(_=None):
     parser.add_argument('--encoding', type=str, default=sENC)
     parser.add_argument('lprofile', type=str, nargs='+', default=None,
                         help='tox profile files - may be encrypted')
+
+    parser.add_argument('--proxy_host', '--proxy-host', type=str,
+                        default='',
+                        help='proxy host')
+    parser.add_argument('--proxy_port', '--proxy-port', default=0, type=int,
+                        help='proxy port')
+    parser.add_argument('--proxy_type', '--proxy-type', default=0, type=int,
+                        choices=[0,1,2],
+                        help='proxy type 1=http, 2=socks')
+
     return parser
 
 if __name__ == '__main__':
