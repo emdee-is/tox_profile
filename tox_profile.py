@@ -775,13 +775,24 @@ def lNodesCheckNodes(json_nodes, oArgs, bClean=False):
                 new_node['onions'] = []
             
         for ipv in ['ipv4','ipv6']:
-            if not node[ipv] in lNONES:
-                LOG.info(f"Checking {node[ipv]}")
             for fam in ["status_tcp", "status_udp"]:
                 if node[ipv] in lNONES \
                   and node[fam] in [True, "true"]:
                     LOG.warn(f"{ipv} {node[ipv]} in [-, 'NONE'] but node[{fam}] is true")
-            if bHAVE_NMAP and bAreWeConnected and ts \
+            bLinux = os.path.exists('/proc')
+            if bLinux and not os.path.exists(f"/proc/sys/net/{ipv}/"):
+                continue
+            elif True:
+                if not node[ipv] in lNONES and ipv == 'ipv4':
+                    # just ping for now
+                    iRet = os.system(f"ping -c 1 {node[ipv]} > /dev/null")
+                    if iRet == 0:
+                        LOG.info(f"Pinged {node[ipv]}")
+                    else:
+                        LOG.warn(f"Failed ping {node[ipv]}")
+                        continue
+            elif not node[ipv] in lNONES \
+               and bHAVE_NMAP and bAreWeConnected and ts \
                and not bRUNNING_TOR \
                and not node[ipv] in lNONES:
                 # nmap test the ipv4/ipv6
