@@ -733,7 +733,8 @@ def lParseNapOutput(sFile):
     lRet = []
     for sLine in open(sFile, 'rt').readlines():
         if sLine.startswith('Failed to resolve ') or \
-           'Temporary failure in name resolution' in sLine:
+           'Temporary failure in name resolution' in sLine or \
+           '/udp closed' in sLine '/tcp closed' in sLine:
             lRet += [sLine]
     return lRet
 
