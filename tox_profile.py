@@ -27,9 +27,9 @@ commands, or the filename of the nodes file for the nodes command.
          choices=[info, save, repr, yaml,json, pprint]
          with --info=info prints info about the profile to stderr
          yaml,json, pprint, repr - output format
-         nmap_udp        - test DHT nodes with nmap
-         nmap_tcp        - test TCP_RELAY nodes with nmap
-         nmap_onion      - test PATH_NODE nodes with nmap
+         nmap_dht        - test DHT nodes with nmap
+         nmap_relay        - test TCP_RELAY nodes with nmap
+         nmap_path      - test PATH_NODE nodes with nmap
   --indent for pprint/yaml/json default=2
 
   --nodes
@@ -41,6 +41,7 @@ commands, or the filename of the nodes file for the nodes command.
        select_version  - select nodes that are the latest version
        download        - download nodes from --download_nodes_url
        check           - check nodes from --download_nodes_url
+       clean           - check nodes and save them as --output
   --download_nodes_url https://nodes.tox.chat/json
 
   --edit
@@ -63,6 +64,9 @@ import argparse
 from pprint import pprint
 import shutil
 import json
+
+import warnings
+warnings.filterwarnings('ignore')
 
 try:
     # https://pypi.org/project/msgpack/
@@ -103,7 +107,7 @@ LOG = logging.getLogger('TSF')
 # Fix for Windows
 sDIR = os.environ.get('TMPDIR', '/tmp')
 sTOX_VERSION = "1000002018"
-sVER_WANT = "1000002018"
+sVER_MIN = "1000002013"
 # 3 months
 iOLD_SECS = 60*60*24*30*3
 
@@ -600,9 +604,10 @@ def process_chunk(index, state, oArgs=None):
     elif data_type == MESSENGER_STATE_TYPE_TCP_RELAY:
         if length > 0:
             lIN = lProcessNodeInfo(state, index, length, result, "TCPnode")
+            LOG.info(f"TYPE_TCP_RELAY {len(lIN)} nodes {length} length")
         else:
             lIN = []
-            LOG.info(f"NO {label}")
+            LOG.warn(f"NO {label} {length} length")
         aOUT.update({label: lIN})
         if oArgs.command == 'edit' and section == label:
             ## TCP_RELAY,.,TCPnode,
@@ -694,7 +699,7 @@ jq '.|with_entries(select(.key|match("nodes"))).nodes[]|select(.status_tcp)|sele
     fi
 done"""
 
-def vBashFileNmapTcp():
+def sBashFileNmapTcp():
     assert bHAVE_JQ, "jq is required for this command"
     assert bHAVE_NMAP, "nmap is required for this command"
     assert bHAVE_BASH, "bash is required for this command"
@@ -704,6 +709,7 @@ def vBashFileNmapTcp():
         with open(sFile, 'wt') as iFd:
             iFd.write(sNMAP_TCP)
         os.chmod(sFile, 0o0775)
+    assert os.path.exists(sFile)
     return sFile
 
 def vBashFileNmapUdp():
@@ -720,21 +726,43 @@ def vBashFileNmapUdp():
                       replace('tcp_ports','udp_ports').
                       replace('status_tcp','status_udp'))
         os.chmod(sFile, 0o0775)
+    assert os.path.exists(sFile)
     return sFile
+
+def lParseNapOutput(sFile):
+    lRet = []
+    for sLine in open(sFile, 'rt').readlines():
+        if sLine.startswith('Failed to resolve ') or \
+           'Temporary failure in name resolution' in sLine:
+            lRet += [sLine]
+    return lRet
 
 sBLURB = """
 I see you have a torrc. You can help the network by running a bootstrap daemon
 as a hidden service, or even using the --tcp_server option of your client.
 """
 
-def iNodesCheckNodes(json_nodes, oArgs):
+def lNodesCheckNodes(json_nodes, oArgs, bClean=False):
     """
     Checking NODES.json
     """
-    iWarns = 0
+    lErrs = []
     iErrs = 0
+    nth = 0
+    if bClean: lNew=[]
     # assert type(json_nodes) == dict
     for node in json_nodes:
+        # new fields:
+        if bClean:
+            new_node = {}
+            for key,val in node:
+                if type(val) == bytes:
+                    new_node[key] = str(val, 'UTF-8')
+                else:
+                    new_node[key] = val
+            if 'onions' not in new_node:
+                new_node['onions'] = []
+            
         for ipv in ['ipv4','ipv6']:
             if not node[ipv] in lNULLS:
                 LOG.info(f"Checking {node[ipv]}")
@@ -752,11 +780,11 @@ def iNodesCheckNodes(json_nodes, oArgs):
            not node['tcp_ports'] and not '.onion' in node['location']:
                LOG.warn("No ports to contact the daemon on")
 
-        if node["version"] < "1000002013":
-            iErrs += 1
+        if node["version"] and node["version"] < "1000002013":
+            lErrs += [nth]
             LOG.error(f"vulnerable version {node['version']} < 1000002013")
-        elif node["version"] < sVER_WANT:
-            LOG.warn(f"outdated version {node['version']} < {sVER_WANT}")
+        elif node["version"] and node["version"] < sVER_MIN:
+            LOG.warn(f"outdated version {node['version']} < {sVER_MIN}")
 
         # Put the onion address in the location after the country code
         if len(node["location"]) not in [2, 65]:
@@ -786,39 +814,34 @@ def iNodesCheckNodes(json_nodes, oArgs):
                     else:
                         LOG.warn(f"Found an onion that resolves to {s}")
 
-        if node['last_ping'] == 0:
-            iErrs += 1
-            LOG.error(f"node has never been pinged")
-        elif time.time() - node['last_ping'] > iOLD_SECS:
-            LOG.error(f"node has not been pinged in more than 3 months")
+        if node['last_ping'] and time.time() - node['last_ping'] > iOLD_SECS:
+            LOG.debug(f"node has not been pinged in more than 3 months")
             
         # suggestions YMMV
-        if str(node['port']).startswith('3344'):
-            LOG.debug(f"Maybe run on a non-standard port to resist blocking {node['port']}")
-           
-        if node['tcp_ports']:
-            for port in node['tcp_ports']:
-                if str(port).startswith('3344') or port in [33445, 3389]:
-                    LOG.debug(f"Maybe run tcp_ports on a non-standard port to resist blocking: {node['port']}")
 
-        if len(node['maintainer']) < 75 and len(node['motd']) < 75:
-            LOG.debug(f"Maybe add a ToxID: in the motd so people can contact you.")
-        elif len(node['maintainer']) > 75 and len(node['motd']) < 75:
-            LOG.debug(f"Maybe put the ToxID: in motd so people can contact you.")
-        elif len(node['maintainer']) > 0 and len(node['motd']) < 1:
-            LOG.debug(f"Maybe put a ToxID: in motd so people can contact you.")
+        if len(node['maintainer']) > 75 and len(node['motd']) < 75:
+            pass
+            # look for onion LOG.debug(f"Maybe put a ToxID: in motd so people can contact you.")
 
+        if bClean and not nth in lErrs:
+            lNew+=[new_node]
+        nth += 1
+        
     # fixme  look for /etc/tor/torrc but it may not be readable
     if bHAVE_TOR and os.path.exists('/etc/tor/torrc'):
          print(sBLURB)
-    return iErrs
-
-def iNodesFileCheck(sProOrNodes):
+    if bClean:
+        return lNew
+    else:
+        return lErrs
+    
+def iNodesFileCheck(sProOrNodes, oArgs, bClean=False):
     try:
         if not os.path.exists(sProOrNodes):
             raise RuntimeError("iNodesFileCheck file not found " +sProOrNodes)
         with open(sProOrNodes, 'rt') as fl:
-            json_nodes = json.loads(fl.read())['nodes']
+            json_all = json.loads(fl.read())
+            json_nodes = json_all['nodes']
     except Exception as e:
         LOG.exception(f"{oArgs.command} error reading {sProOrNodes}")
         return 1
@@ -826,7 +849,24 @@ def iNodesFileCheck(sProOrNodes):
     LOG.info(f"iNodesFileCheck checking JSON")
     i = 0
     try:
-        i = iNodesCheckNodes(json_nodes, oArgs)
+        al = lNodesCheckNodes(json_nodes, oArgs, bClean=bClean)
+        if bClean == False:
+            i = len(al)
+        else:
+            now = time.time()
+            aOut = dict(last_scan=json_all['last_scan'],
+                        last_refresh=now,
+                        nodes=al)
+            sOut = oArgs.output
+            try:
+                LOG.debug(f"iNodesFileClean saving to {sOut}")
+                oStream = open(sOut, 'wt', encoding=sENC)
+                json.dump(aOut, oStream, indent=oArgs.indent)
+                if oStream.write('\n') > 0: i = 0
+            except Exception as e:
+                LOG.exception(f"iNodesFileClean error dumping JSON to {sOUT}")
+                return 3
+            
     except Exception as e:
         LOG.exception(f"iNodesFileCheck error checking JSON")
         i = -2
@@ -858,30 +898,41 @@ def iNodesFileClean(sProOrNodes):
     LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
     return 0
 
-def vOsSystemNmapUdp(l, oArgs):
-    iErrs = 0
-    for elt in aOUT["DHT"]:
-        cmd = f"sudo nmap -Pn -n -sU -p U:{elt['Port']} {elt['Ip']}"
-        iErrs += os.system(cmd +f" >> {oArgs.output} 2>&1")
-    if iErrs:
-        LOG.warn(f"{oArgs.info} {iErrs} ERRORs to {oArgs.output}")
-        print(f"{oArgs.info} {iErrs} ERRORs to {oArgs.output}")
-    else:
-        LOG.info(f"{oArgs.info} NO errors to {oArgs.output}")
-        print(f"{oArgs.info} NO errors to {oArgs.output}")
-
-def vOsSystemNmapTcp(l, oArgs):
+def iOsSystemNmapUdp(l, oArgs):
     iErrs = 0
     for elt in l:
-        cmd = f"sudo nmap -Pn -n -sT -p T:{elt['Port']} {elt['Ip']}"
-        print(f"{oArgs.info} NO errors to {oArgs.output}")
+        cmd = f"sudo nmap -Pn -n -sU -p U:{elt['Port']} {elt['Ip']}"
+        LOG.debug(f"{oArgs.info} {cmd} to {oArgs.output}")
         iErrs += os.system(cmd +f" >> {oArgs.output} 2>&1")
-    if iErrs:
-        LOG.warn(f"{oArgs.info} {iErrs} ERRORs to {oArgs.output}")
-        print(f"{oArgs.info} {iErrs} ERRORs to {oArgs.output}")
-    else:
-        LOG.info(f"{oArgs.info} NO errors to {oArgs.output}")
-        print(f"{oArgs.info} NO errors to {oArgs.output}")
+        if iErrs:
+            LOG.warn(f"{oArgs.info} {iErrs} ERRORs to {oArgs.output}")
+        else:
+            LOG.info(f"{oArgs.info} NO errors to {oArgs.output}")
+            lRet = lParseNapOutput(oArgs.output)
+            if lRet:
+                for sLine in lRet:
+                    LOG.warn(f"{oArgs.nodes} {sLine}")
+            iErr = len(lRet)
+        iErrs += iErr
+    return iErrs
+
+def iOsSystemNmapTcp(l, oArgs):
+    iErrs = 0
+    LOG.debug(f"{len(l)} nodes to {oArgs.output}")
+    for elt in l:
+        cmd = f"sudo nmap -Pn -n -sT -p T:{elt['Port']} {elt['Ip']}"
+        LOG.debug(f"iOsSystemNmapTcp {cmd} to {oArgs.output}")
+        iErr += os.system(cmd +f" >> {oArgs.output} 2>&1")
+        if iErr:
+            LOG.warn(f"iOsSystemNmapTcp {iErrs} ERRORs to {oArgs.output}")
+        else:
+            lRet = lParseNapOutput(oArgs.output)
+            if lRet:
+                for sLine in lRet:
+                    LOG.warn(f"{oArgs.nodes} {sLine}")
+            iErr = len(lRet)
+        iErrs += iErr
+    return iErrs
 
 def vSetupLogging(loglevel=logging.DEBUG):
     global LOG
@@ -915,6 +966,7 @@ def iMain(sProOrNodes, oArgs):
             LOG.error(f"decrypting {sProOrNodes} - {e}")
             sys.exit(1)
     assert bSAVE
+    LOG.debug(f"{oArgs.command} {len(bSAVE)} bytes")
 
     oStream = None
     if oArgs.command == 'decrypt':
@@ -928,8 +980,8 @@ def iMain(sProOrNodes, oArgs):
         iRet = -1
         ep_sec = str(int(time.time()))
         json_head = '{"last_scan":' +ep_sec \
-          +',"last_refresh":' +ep_sec \
-          +',"nodes":['
+            +',"last_refresh":' +ep_sec \
+            +',"nodes":['
         if oArgs.nodes == 'select_tcp':
             assert oArgs.output, "--output required for this command"
             assert bHAVE_JQ, "jq is required for this command"
@@ -963,40 +1015,65 @@ def iMain(sProOrNodes, oArgs):
             assert oArgs.output, "--output required for this command"
             if not bAreWeConnected():
                 LOG.warn(f"{oArgs.nodes} we are not connected")
-            cmd = vBashFileNmapTcp()
-            iRet = os.system(f"bash {cmd} < '{sProOrNodes}'" +f" >'{oArgs.output}'")
+            else:
+                cmd = sBashFileNmapTcp()
+                cmd = f"bash {cmd} < '{sProOrNodes}' >'{oArgs.output}' 2>&1"
+                LOG.debug(cmd)
+                iRet = os.system(cmd)
+                if iRet == 0:
+                    lRet = lParseNapOutput(oArgs.output)
+                    if lRet:
+                        for sLine in lRet:
+                            LOG.warn(f"{oArgs.nodes} {sLine}")
+                    iRet = len(lRet)
 
         elif oArgs.nodes == 'nmap_udp':
             assert oArgs.output, "--output required for this command"
             if not bAreWeConnected():
                 LOG.warn(f"{oArgs.nodes} we are not connected")
+            elif bHAVE_TOR:
+                LOG.warn(f"{oArgs.nodes} this wont work behind tor")
             cmd = vBashFileNmapUdp()
-            iRet = os.system(f"bash {cmd} < '{sProOrNodes}'" +f" >'{oArgs.output}'")
+            cmd = f"bash {cmd} < '{sProOrNodes}'" +f" >'{oArgs.output}' 2>&1"
+            LOG.debug(cmd)
+            iRet = os.system(cmd)
+            if iRet == 0:
+                lRet = lParseNapOutput(oArgs.output)
+                if lRet:
+                    for sLine in lRet:
+                        LOG.warn(f"{oArgs.nodes} {sLine}")
+                iRet = len(lRet)
 
         elif oArgs.nodes == 'download' and download_url:
             if not bAreWeConnected():
                 LOG.warn(f"{oArgs.nodes} we are not connected")
             url = oArgs.download_nodes_url
             b = download_url(url)
-            if not bSAVE:
+            if not b:
                 LOG.warn("failed downloading list of nodes")
                 iRet = -1
             else:
                 if oArgs.output:
-                    oStream = open(oArgs.output, 'rb')
+                    oStream = open(oArgs.output, 'wb')
                     oStream.write(b)
                 else:
                     oStream = sys.stdout
                     oStream.write(str(b, sENC))
-                iRet = -1
+                iRet = 0
                 LOG.info(f"downloaded list of nodes to {oStream}")
                 
         elif oArgs.nodes == 'check':
-            i = iNodesFileCheck(sProOrNodes)
-            return i
+            i = iNodesFileCheck(sProOrNodes, oArgs, bClean=False)
+            iRet = i
+        
+        elif oArgs.nodes == 'clean':
+            assert oArgs.output, "--output required for this command"
+            i = iNodesFileCheck(sProOrNodes, oArgs, bClean=True)
+            iRet = i
         
         if iRet > 0:
             LOG.warn(f"{oArgs.nodes} iRet={iRet} to {oArgs.output}")
+            
         elif iRet == 0:
             LOG.info(f"{oArgs.nodes} iRet={iRet} to {oArgs.output}")
 
@@ -1017,6 +1094,7 @@ def iMain(sProOrNodes, oArgs):
         process_chunk(len(bOUT), bSAVE, oArgs)
         if not bOUT:
             LOG.error(f"{oArgs.command} NO bOUT results")
+            iRet = 1
         else:
             oStream = None
             LOG.debug(f"command={oArgs.command} len bOUT={len(bOUT)} results")
@@ -1028,42 +1106,83 @@ def iMain(sProOrNodes, oArgs):
                 LOG.info(f"{oArgs.info}ed iRet={iRet} to {oArgs.output}")
             elif oArgs.info == 'info':
                 pass
-            elif oArgs.info == 'yaml' and yaml:
-                LOG.debug(f"{oArgs.command} saving to {oArgs.output}")
-                oStream = open(oArgs.output, 'wt', encoding=sENC)
-                yaml.dump(aOUT, stream=oStream, indent=oArgs.indent)
-                if oStream.write('\n') > 0: iRet = 0
-                LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
-            elif oArgs.info == 'json' and json:
-                LOG.debug(f"{oArgs.command} saving to {oArgs.output}")
-                oStream = open(oArgs.output, 'wt', encoding=sENC)
-                json.dump(aOUT, oStream, indent=oArgs.indent)
-                if oStream.write('\n') > 0: iRet = 0
-                LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
+                iRet = 0
+            elif oArgs.info == 'yaml':
+                if not yaml:
+                    LOG.warn(f"{oArgs.command} no yaml support")
+                    iRet = -1
+                else:
+                    LOG.debug(f"{oArgs.command} saving to {oArgs.output}")
+                    oStream = open(oArgs.output, 'wt', encoding=sENC)
+                    try:
+                        assert aOUT
+                        yaml.dump(aOUT, stream=oStream, indent=oArgs.indent)
+                    except Exception as e:
+                        LOG.warn(f'WARN: {e}')
+                    else:
+                        oStream.write('\n')
+                        iRet = 0
+                    LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
+                
+            elif oArgs.info == 'json':
+                if not yaml:
+                    LOG.warn(f"{oArgs.command} no json support")
+                    iRet = -1
+                else:
+                    LOG.debug(f"{oArgs.command} saving to {oArgs.output}")
+                    oStream = open(oArgs.output, 'wt', encoding=sENC)
+                    try:
+                        json.dump(aOUT, oStream, indent=oArgs.indent, skipkeys=True)
+                    except:
+                        LOG.warn("There are somtimes problems with the json info dump of bytes keys: ```TypeError: Object of type bytes is not JSON serializable```")
+                    oStream.write('\n') > 0
+                    iRet = 0
+                    LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
+                
             elif oArgs.info == 'repr':
                 LOG.debug(f"{oArgs.command} saving to {oArgs.output}")
                 oStream = open(oArgs.output, 'wt', encoding=sENC)
                 if oStream.write(repr(bOUT)) > 0: iRet = 0
                 if oStream.write('\n') > 0: iRet = 0
                 LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
+                
             elif oArgs.info == 'pprint':
                 LOG.debug(f"{oArgs.command} saving to {oArgs.output}")
                 oStream = open(oArgs.output, 'wt', encoding=sENC)
                 pprint(aOUT, stream=oStream, indent=oArgs.indent, width=80)
                 iRet = 0
                 LOG.info(f"{oArgs.info}ing iRet={iRet} to {oArgs.output}")
-            elif oArgs.info == 'nmap_tcp' and bHAVE_NMAP:
+                
+            elif oArgs.info == 'nmap_relay':
+                assert bHAVE_NMAP, "nmap is required for this command"
                 assert oArgs.output, "--output required for this command"
-                vOsSystemNmapTcp(aOUT["TCP_RELAY"], oArgs)
-            elif oArgs.info == 'nmap_udp' and bHAVE_NMAP:
+                if aOUT["TCP_RELAY"]:
+                    iRet = iOsSystemNmapTcp(aOUT["TCP_RELAY"], oArgs)
+                else:
+                    LOG.warn(f"{oArgs.info} no TCP_RELAY")
+                    iRet = 0
+                    
+            elif oArgs.info == 'nmap_dht':
+                assert bHAVE_NMAP, "nmap is required for this command"
                 assert oArgs.output, "--output required for this command"
-                vOsSystemNmapUdp(aOUT["DHT"], oArgs)
-            elif oArgs.info == 'nmap_onion' and bHAVE_NMAP:
+                if aOUT["DHT"]:
+                    iRet = iOsSystemNmapUdp(aOUT["DHT"], oArgs)
+                else:
+                    LOG.warn(f"{oArgs.info} no DHT")
+                    iRet = 0
+                
+            elif oArgs.info == 'nmap_path':
+                assert bHAVE_NMAP, "nmap is required for this command"
                 assert oArgs.output, "--output required for this command"
-                vOsSystemNmapUdp(aOUT["PATH_NODE"], oArgs)
+                if aOUT["PATH_NODE"]:
+                    iRet = iOsSystemNmapUdp(aOUT["PATH_NODE"], oArgs)
+                else:
+                    LOG.warn(f"{oArgs.info} no PATH_NODE")
+                    iRet = 0
 
     if oStream and oStream != sys.stdout and oStream != sys.stderr:
         oStream.close()
+    return iRet
 
 def oMainArgparser(_=None):
     if not os.path.exists('/proc/sys/net/ipv6'):
@@ -1087,11 +1206,12 @@ def oMainArgparser(_=None):
     parser.add_argument('--indent', type=int, default=2,
                         help='Indent for yaml/json/pprint')
     choices=['info', 'save', 'repr', 'yaml','json', 'pprint']
-    if bHAVE_NMAP: choices += ['nmap_tcp', 'nmap_udp', 'nmap_onion']
+    if bHAVE_NMAP:
+        choices += ['nmap_relay', 'nmap_dht', 'nmap_path']
     parser.add_argument('--info', type=str, default='info',
                         choices=choices,
                         help='Format for info command')
-    choices = ['check']
+    choices = ['check', 'clean']
     if bHAVE_JQ:
         choices += ['select_tcp', 'select_udp', 'select_version']
     if bHAVE_NMAP: choices += ['nmap_tcp', 'nmap_udp']

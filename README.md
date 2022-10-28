@@ -3,9 +3,12 @@
 Read and manipulate tox profile files. It started as a simple script from
 <https://stackoverflow.com/questions/30901873/what-format-are-tox-files-stored-in>
 
-```tox_savefile.py``` reads a Tox profile and prints to stderr various
+```tox_profile.py``` reads a Tox profile and prints to stderr various
 things that it finds.  Then can write what it found in JSON/YAML/REPR/PPRINT
 to a file. It can also test the nodes in a profile using ```nmap```.
+
+( There are somtimes problems with the json info dump of bytes keys:
+```TypeError: Object of type bytes is not JSON serializable```)
 
 It can also download, select, or test nodes in a ```DHTnode.json``` file.
 
@@ -30,15 +33,15 @@ to stdout
 to a file.
 
 ```
-usage: tox_savefile.py [-h]
-                               [--command info|decrypt|nodes|edit]
-                               [--info info|repr|yaml|json|pprint|nmap_udp|nmap_tcp]
-                               [--indent INDENT]
-                               [--nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp|download|check]
-                               [--download_nodes_url DOWNLOAD_NODES_URL]
-			       [--edit help|section,num,key,val]
- 			       [--output OUTPUT]
-			        profile		       
+usage: tox_profile.py [-h]
+       [--command info|decrypt|nodes|edit]
+       [--info info|repr|yaml|json|pprint|nmap_dht|nmap_relay]
+       [--indent INDENT]
+       [--nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp|download|check|clean]
+       [--download_nodes_url DOWNLOAD_NODES_URL]
+       [--edit help|section,num,key,val]
+       [--output OUTPUT]
+        profile		       
 ```
 Positional arguments:
 ```
@@ -50,7 +53,7 @@ Optional arguments:
   --command {info,decrypt,nodes,edit}
                         Action command - default: info
   --output OUTPUT       Destination for info/decrypt/nodes - can be the same as input
-  --info info|repr|yaml|json|pprint|nmap_udp|nmap_tcp (may require nmap)
+  --info info|repr|yaml|json|pprint|nmap_dht|nmap_relay (may require nmap)
                         Format for info command
   --indent INDENT       Indent for yaml/json/pprint
   --nodes select_tcp|select_udp|select_version|nmap_tcp|nmap_udp|download
@@ -66,9 +69,22 @@ Optional arguments:
 Choose one of ```{info,repr,yaml,json,pprint,save}```
 for the format for info command.
 
-Choose one of ```{nmap_udp,nmap_tcp}```
+Choose one of ```{nmap_dht,nmap_relay,nmap_path}```
 to run tests using ```nmap``` for the ```DHT``` and ```TCP_RELAY```
 sections of the profile. Reguires ```nmap``` and uses ```sudo```.
+
+```
+  --info default='info',
+         choices=[info, save, repr, yaml,json, pprint]
+         with --info=info prints info about the profile to stderr
+         yaml,json, pprint, repr - output format
+         nmap_dht        - test DHT nodes with nmap
+         nmap_relay        - test TCP_RELAY nodes with nmap
+         nmap_path      - test PATH_NODE nodes with nmap
+  --indent for pprint/yaml/json default=2
+
+
+```
 
 #### Saving a copy
 
@@ -83,6 +99,7 @@ decryption).
 
 ### --command nodes
 
+
 Takes a DHTnodes.json file as an argument.
 Choose one of ```{select_tcp,select_udp,select_version}```
 for ```--nodes``` to select TCP nodes, UDP nodes,
@@ -93,6 +110,29 @@ for the ```status_tcp==True``` and ```status_udp==True``` nodes.
 Reguires ```nmap``` and uses ```sudo```.
 
 Choose ```download``` to download the nodes from ```--download_nodes_url```
+
+Choose ```check``` to check the  downloaded nodes, and the error return
+is the number of nodes with errors. 
+
+Choose ```clean``` to clean the  downloaded nodes, and give
+```--output``` for the file the  nodes ckeaned of  errors.
+
+Check and clean will also try to ping the nodes on the relevant ports,
+and clean will update the ```status_tcp``, ```status_udp```, and
+```last_ping``` fields of the nodes.
+
+  --nodes
+       choices=[select_tcp, select_udp, nmap_tcp, select_version, nmap_udp, check, download]
+       select_udp      - select udp nodes
+       select_tcp      - select tcp nodes
+       nmap_udp        - test UDP nodes with nmap
+       nmap_tcp        - test TCP nodes with nmap
+       select_version  - select nodes that are the latest version
+       download        - download nodes from --download_nodes_url
+       check           - check nodes from --download_nodes_url
+       clean           - check nodes and save them as --output
+  --download_nodes_url https://nodes.tox.chat/json
+```
 
 ### --command decrypt
 
@@ -124,6 +164,12 @@ The ```num``` field is to accomodate sections that have lists:
 The ```--output``` can be the same as input as the input file is read
 and closed before processing starts.
 
+```
+  --edit
+       help               - print a summary of what fields can be edited
+      section,num,key,val - edit the field section,num,key with val
+```
+
 You can use the ```---edit``` command to synchronize profiles, by
 keeping the keypair and synchronize profiles between different clients:
 e.g. your could keep your profile from toxic as master, and copy it over
@@ -132,7 +178,8 @@ your qtox/toxygen/TriFa profile while preserving their keypair and NOSPAM:
 1. Use ```--command info --info info``` on the target profile to get the
    ```Nospam```, ```Public_key``` and ```Private_key``` of the target.
 2. Backup the target and copy the source profile to the target.
-3. Edit the target with the values from 1) with:```
+3. Edit the target with the values from 1) with:
+```
 --command edit --edit NOSPAMKEYS,.,Nospam,hexstr --output target target
 --command edit --edit NOSPAMKEYS,.,Public_key,hexstr --output target target
 --command edit --edit NOSPAMKEYS,.,Private_key,hexstr --output target target
