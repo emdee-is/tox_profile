@@ -54,6 +54,7 @@ commands, or the filename of the nodes file for the nodes command.
   --onions             experimental
        config             - check your /etc/tor/torrc configuration
        test               - test your /etc/tor/torrc configuration
+       exits              - cleans exists with no Contact Info listed
 
 """
 
@@ -74,6 +75,8 @@ import json
 import warnings
 warnings.filterwarnings('ignore')
 
+from wrapper_tests import support_testing as ts
+
 try:
     # https://pypi.org/project/msgpack/
     import msgpack
@@ -84,12 +87,17 @@ try:
 except ImportError as e:
     yaml = None
 try:
+    import stem
+except ImportError as e:
+    stem = None
+try:
     # https://pypi.org/project/coloredlogs/
     import coloredlogs
     if 'COLOREDLOGS_LEVEL_STYLES' not in os.environ:
         os.environ['COLOREDLOGS_LEVEL_STYLES'] = 'spam=22;debug=28;verbose=34;notice=220;warning=202;success=118,bold;error=124;critical=background=red'
 except ImportError as e:
     coloredlogs = False
+
 try:
     # https://git.plastiras.org/emdee/toxygen_wrapper
     from wrapper.toxencryptsave import ToxEncryptSave
@@ -112,6 +120,18 @@ except ImportError as e:
     
 LOG = logging.getLogger('TSF')
 
+def LOG_error(a): print('EROR> '+a)
+def LOG_warn(a): print('WARN> '+a)
+def LOG_info(a):
+    bVERBOSE = hasattr(__builtins__, 'oArgs') and oArgs.log_level <= 20
+    if bVERBOSE: print('INFO> '+a)
+def LOG_debug(a):
+    bVERBOSE = hasattr(__builtins__, 'oArgs') and oArgs.log_level <= 10-1
+    if bVERBOSE: print('DBUG> '+a)
+def LOG_trace(a):
+    bVERBOSE = hasattr(__builtins__, 'oArgs') and oArgs.log_level < 10
+    if bVERBOSE: print('TRAC> '+a)
+ 
 # Fix for Windows
 sDIR = os.environ.get('TMPDIR', '/tmp')
 sTOX_VERSION = "1000002018"
@@ -708,11 +728,11 @@ ip=""
 declare -a ports
 jq '.|with_entries(select(.key|match("nodes"))).nodes[]|select(.status_tcp)|select(.ipv4|match("."))|.ipv4,.tcp_ports' | while read line ; do
     if [ -z "$ip" ] ; then
-	ip=`echo $line|sed -e 's/"//g'`
-	ports=()
-	continue
+        ip=`echo $line|sed -e 's/"//g'`
+        ports=()
+        continue
     elif [ "$line" = '[' ] ; then
-	continue
+        continue
     elif [ "$line" = ']' ] ; then
 	if ! route | grep -q ^def ; then
             echo ERROR no route
@@ -1017,15 +1037,15 @@ def iOsSystemNmapTcp(l, oArgs):
         iErrs += iErr
     return iErrs
 
-def vSetupLogging(loglevel=logging.DEBUG):
+def vSetupLogging(log_level=logging.DEBUG):
     global LOG
     if coloredlogs:
-        aKw = dict(level=loglevel,
+        aKw = dict(level=log_level,
                    logger=LOG,
                    fmt='%(name)s %(levelname)s %(message)s')
         coloredlogs.install(**aKw)
     else:
-        aKw = dict(level=loglevel,
+        aKw = dict(level=log_level,
                    format='%(name)s %(levelname)-4s %(message)s')
         logging.basicConfig(**aKw)
 
@@ -1055,6 +1075,23 @@ def iTestTorConfig(sProOrNodes, oArgs, bClean=False):
                 i += 1
 
     # add_bootstrap
+    return 0
+
+def iTestTorExits(sProOrNodes, oArgs, bClean=False):
+    LOG.info(f"iTestTorExits")
+#    import pdb; pdb.set_trace()
+    # sProOrNodes
+    try:
+        if hasattr(ts, 'oSTEM_CONTROLER') and ts.oSTEM_CONTROLER \
+           and controller.is_set('ExcludeExitNodes'):
+               LOG_info(f"ExcludeExitNodes is set so we cant continue")
+               return 0
+        LOG_info(f"ExcludeExitNodes is not set so we can continue")
+        l = ts.lExitExcluder(iPort=9051)
+    except Exception as e:
+        LOG.error(f"ExcludeExitNodes errored {e}")
+        return 1
+
     return 0
 
 def iTestTorTest(sProOrNodes, oArgs, bClean=False):
@@ -1215,7 +1252,13 @@ def iMain(sProOrNodes, oArgs):
         elif oArgs.onions == 'test':
             i = iTestTorTest(sProOrNodes, oArgs)
             iRet = i
-    
+
+        elif oArgs.onions == 'exits':
+            i = iTestTorExits(sProOrNodes, oArgs)
+            iRet = i
+        else:
+            RuntimeError(   oArgs.onions)
+ 
     elif oArgs.command in ['info', 'edit']:
 
         if oArgs.command in ['edit']:
@@ -1370,7 +1413,7 @@ def oMainArgparser(_=None):
     parser.add_argument('--download_nodes_url', type=str,
                         default='https://nodes.tox.chat/json')
     parser.add_argument('--onions', type=str, default='',
-                        choices=['config', 'test'] if bHAVE_TOR else [],
+                        choices=['config', 'test', 'exits'] if bHAVE_TOR else [],
                         help='Action for onion command (requires tor)')
 
     parser.add_argument('--encoding', type=str, default=sENC)
@@ -1400,6 +1443,7 @@ if __name__ == '__main__':
         print('Supported Quads: section,num,key,type ' +sEDIT_HELP)
         sys.exit(0)
 
+    __builtins__.oArgs = oArgs
     vSetupLogging(oArgs.log_level)
     i = 0
     for sProOrNodes in oArgs.lprofile:
