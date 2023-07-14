@@ -164,3 +164,5 @@ cython_debug/
 
 .pylint.err
 .pylint.log
+tox_profile_test.bash
+tox_profile.sh
