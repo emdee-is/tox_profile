@@ -135,7 +135,8 @@ def LOG_trace(a):
     bVERBOSE = hasattr(__builtins__, 'oArgs') and oArgs.log_level < 10
     if bVERBOSE: print('TRAC> '+a)
 
-# Fix for Windows
+__version__ = "0.1.0"
+# FixMe for Windows
 sDIR = os.environ.get('TMPDIR', '/tmp')
 sTOX_VERSION = "1000002018"
 sVER_MIN = "1000002013"

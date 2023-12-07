@@ -5,6 +5,7 @@ __pycache__/
 *$py.class
 *.diff
 .pylint.*
+*~
 
 # C extensions
 *.so
