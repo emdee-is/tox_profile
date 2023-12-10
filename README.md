@@ -7,7 +7,7 @@ Read and manipulate tox profile files. It started as a simple script from
 things that it finds.  Then can write what it found in JSON/YAML/REPR/PPRINT
 to a file. It can also test the nodes in a profile using ```nmap```.
 
-( There are somtimes problems with the json info dump of bytes keys:
+( There are sometimes problems with the json info dump of bytes keys:
 ```TypeError: Object of type bytes is not JSON serializable```)
 
 It can also download, select, or test nodes in a ```DHTnode.json``` file.
@@ -221,6 +221,10 @@ This has not been tested on Windwoes, but is should be simple to fix.
 Because it's written in Python it is easy to extend to, for example,
 supporting multidevices:
 <https://git.plastiras.org/emdee/tox_profile/wiki/MultiDevice-Announcements-POC>
+
+There are a couple of bash scripts to show usage:
+* tox_profile_examples.bash - simple example usage
+* tox_profile_test.bash - a real test runner that still needs documenting.
 
 ## Specification
 
