@@ -7,10 +7,10 @@ PREFIX=/mnt/o/var/local
 ROLE=text
 DEBUG=1
 EXE=/var/local/bin/python3.bash
-WRAPPER$PREFIX/src/toxygen_wrapper.git
+WRAPPER=$PREFIX/src/toxygen_wrapper.git
 tox=$HOME/.config/tox/toxic_profile.tox
 [ -s $tox ] || exit 2
-target$PREFIX/src/tox_profile/tox_profile.py
+target=$PREFIX/src/tox_profile/tox_profile.py
 
 OUT=/tmp/toxic_profile
 

@@ -890,16 +890,16 @@ def lNodesCheckNodes(json_nodes, oArgs, bClean=False):
 
         if node["version"] and node["version"] < "1000002013":
             lErrs += [nth]
-            LOG.error(f"vulnerable version {node['version']} < 1000002013")
+            LOG.error(f"{node['ipv4']}: vulnerable version {node['version']} < 1000002013")
         elif node["version"] and node["version"] < sVER_MIN:
-            LOG.warn(f"outdated version {node['version']} < {sVER_MIN}")
+            LOG.warn(f"{node['ipv4']}: outdated version {node['version']} < {sVER_MIN}")
 
         # Put the onion address in the location after the country code
         if len(node["location"]) not in [2, 65]:
-            LOG.warn(f"location {node['location']} should be a 2 digit country code, or 'code onion'")
+            LOG.warn(f"{node['ipv4']}: location {node['location']} should be a 2 digit country code, or 'code onion'")
         elif len(node["location"]) == 65 and \
              not node["location"].endswith('.onion'):
-            LOG.warn(f"location {node['location']} should be a 2 digit country code 'code onion'")
+            LOG.warn(f"{node['ipv4']}: location {node['location']} should be a 2 digit country code 'code onion'")
         elif len(node["location"]) == 65 and \
                 node["location"].endswith('.onion') and bHAVE_TOR:
             onion = node["location"][3:]
@@ -918,12 +918,12 @@ def lNodesCheckNodes(json_nodes, oArgs, bClean=False):
                     pass
                 else:
                     if s:
-                        LOG.info(f"Found an onion that resolves to {s}")
+                        LOG.info(f"{node['ipv4']}: Found an onion that resolves to {s}")
                     else:
-                        LOG.warn(f"Found an onion that resolves to {s}")
+                        LOG.warn(f"{node['ipv4']}: Found an onion that resolves to {s}")
 
         if node['last_ping'] and time.time() - node['last_ping'] > iOLD_SECS:
-            LOG.debug(f"node has not been pinged in more than 3 months")
+            LOG.debug(f"{node['ipv4']}: node has not pinged in more than 3 months")
 
         # suggestions YMMV
 
